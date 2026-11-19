@@ -79,6 +79,7 @@ int lockInterface(const std::string &interface, std::string &path)
   {
     return -1;
   }
+  fchmod(fd, 0666);  // like ROS 1 (umask 0): whoever starts the robot next must be able to open it
   struct flock lock;
   std::memset(&lock, 0, sizeof(lock));
   lock.l_type = F_WRLCK;
@@ -255,6 +256,7 @@ int main(int argc, char **argv)
   executor.cancel();
   spin_thread.join();
   rclcpp::shutdown();
+  unlink(lock_path.c_str());  // like ROS 1 cleanupPidFile
   close(lock_fd);
   return exit_code;
 }
