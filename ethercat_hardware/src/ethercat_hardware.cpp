@@ -77,12 +77,12 @@ void EthercatHardwareDiagnostics::resetMaxTiming()
 
 EthercatHardware::EthercatHardware(const rclcpp::Node::SharedPtr &node) :
   hw_(0), node_(node),
+  device_loader_("ethercat_hardware", "EthercatDevice"),
   ni_(0), this_buffer_(0), prev_buffer_(0), buffer_size_(0), halt_motors_(true), reset_state_(0), 
   max_pd_retries_(10),
   diagnostics_publisher_(node_), 
   // latched in ROS 1 -> transient_local
-  motor_publisher_(node_->create_publisher<std_msgs::msg::Bool>("motors_halted", rclcpp::QoS(1).transient_local())),
-  device_loader_("ethercat_hardware", "EthercatDevice")
+  motor_publisher_(node_->create_publisher<std_msgs::msg::Bool>("motors_halted", rclcpp::QoS(1).transient_local()))
 {
   
 }

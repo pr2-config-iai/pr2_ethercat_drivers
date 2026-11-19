@@ -271,6 +271,10 @@ private:
 
   rclcpp::Node::SharedPtr node_;
 
+  // Declared before slaves_ and diagnostics_publisher_ (which both hold the devices it creates),
+  // so it is destroyed after them; otherwise class_loader warns that it cannot unload libraries.
+  pluginlib::ClassLoader<EthercatDevice> device_loader_;
+
   struct netif *ni_;
   string interface_;
 
@@ -302,8 +306,6 @@ private:
   realtime_tools::RealtimePublisher<std_msgs::msg::Bool> motor_publisher_;
 
   EthercatOobCom *oob_com_;  
-
-  pluginlib::ClassLoader<EthercatDevice> device_loader_;
 };
 
 #endif /* ETHERCAT_HARDWARE_H */
