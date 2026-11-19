@@ -292,8 +292,8 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   { // Initialization is now complete. Reduce timeout of EtherCAT txandrx for better realtime performance
     // Allow timeout to be configured at program load time with rosparam.  
     // This will allow tweaks for systems with different realtime performace
-    static const int MAX_TIMEOUT = 100000;   // 100ms = 100,000us
-    static const int DEFAULT_TIMEOUT = 20000; // default to timeout to 20000us = 20ms
+    static const int MAX_TIMEOUT = 200000;   // 100ms = 100,000us
+    static const int DEFAULT_TIMEOUT = 5000; // default to timeout to 20000us = 20ms
     int timeout;
     if (!node_.getParam("realtime_socket_timeout", timeout))
     {
