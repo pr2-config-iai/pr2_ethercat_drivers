@@ -45,6 +45,8 @@ namespace
 {
 
 std::atomic<bool> g_quit{false};
+std::string g_lock_path;  // removed at exit, also when EthercatHardware::init() calls exit()
+void removeLockFile() { if (!g_lock_path.empty()) unlink(g_lock_path.c_str()); }
 void onSignal(int) { g_quit = true; }
 
 constexpr long NSEC_PER_SEC = 1000000000L;
@@ -157,6 +159,8 @@ int main(int argc, char **argv)
     std::fprintf(stderr, "Cannot create lock file %s: %s\n", lock_path.c_str(), strerror(errno));
     return 1;
   }
+  g_lock_path = lock_path;
+  std::atexit(removeLockFile);
 
   signal(SIGINT, onSignal);
   signal(SIGTERM, onSignal);
@@ -256,7 +260,7 @@ int main(int argc, char **argv)
   executor.cancel();
   spin_thread.join();
   rclcpp::shutdown();
-  unlink(lock_path.c_str());  // like ROS 1 cleanupPidFile
+  removeLockFile();  // like ROS 1 cleanupPidFile
   close(lock_fd);
   return exit_code;
 }
