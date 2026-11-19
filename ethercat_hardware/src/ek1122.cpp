@@ -35,7 +35,7 @@
 #include <ethercat_hardware/ek1122.h>
 #include <iomanip>
 
-#include <ros/console.h>
+#include "ethercat_hardware/ros_helpers.h"
 
 PLUGINLIB_EXPORT_CLASS(EK1122, EthercatDevice);
 
@@ -48,13 +48,16 @@ void EK1122::construct(EtherCAT_SlaveHandler *sh, int &start_address)
 
 EK1122::~EK1122()
 {
-  delete sh_->get_fmmu_config();
-  delete sh_->get_pd_config();
+  if (sh_)  // only set by construct()
+  {
+    delete sh_->get_fmmu_config();
+    delete sh_->get_pd_config();
+  }
 }
 
 int EK1122::initialize(pr2_hardware_interface::HardwareInterface *, bool)
 {
-  ROS_DEBUG("Device #%02d: EK1122 (%#08x)", sh_->get_ring_position(), sh_->get_product_code());
+  RCLCPP_DEBUG(::ethercat_hardware::logger(), "Device #%02d: EK1122 (%#08x)", sh_->get_ring_position(), sh_->get_product_code());
   return 0;
 }
 void EK1122::diagnostics(diagnostic_updater::DiagnosticStatusWrapper &d, unsigned char *)

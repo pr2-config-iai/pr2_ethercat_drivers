@@ -33,13 +33,15 @@
  *********************************************************************/
 
 #include "ethercat_hardware/motor_heating_model.h"
+#include <unistd.h>
+#include "ethercat_hardware/ros_helpers.h"
 
 #include <boost/crc.hpp>
 #include <boost/static_assert.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/bind.hpp>
 #include <boost/foreach.hpp>
-#include <boost/timer.hpp>
+#include <chrono>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/thread.hpp>
 
@@ -75,7 +77,7 @@ void MotorHeatingModelParametersEepromConfig::generateCRC(void)
 
 
 
-MotorHeatingModelCommon::MotorHeatingModelCommon(ros::NodeHandle nh)
+MotorHeatingModelCommon::MotorHeatingModelCommon(const rclcpp::Node::SharedPtr &node, const std::string &prefix)
 {
   // There are a couple of rosparams that can be used to control the motor heating motor
   //  * <namespace>/motor_heating_model/load_save_files : 
@@ -89,29 +91,29 @@ MotorHeatingModelCommon::MotorHeatingModelCommon(ros::NodeHandle nh)
   //  * <namespace>/motor_heating_model/do_not_halt : 
   //      boolean, defaults to false 
   //
-  if (!nh.getParam("load_save_files", load_save_files_))
+  if (!ethercat_hardware::getParam(node, prefix + "load_save_files", load_save_files_))
   {
     load_save_files_ = true;
   }
-  if (!nh.getParam("update_save_files", update_save_files_))
+  if (!ethercat_hardware::getParam(node, prefix + "update_save_files", update_save_files_))
   {
     update_save_files_ = true;
   }
-  if (!nh.getParam("do_not_halt", disable_halt_))
+  if (!ethercat_hardware::getParam(node, prefix + "do_not_halt", disable_halt_))
   {
     // TODO : once there has been enough testing of motor heating model on robot in real-world conditions,
     //        enable halting by default
     disable_halt_ = true;  
   }
-  if (!nh.getParam("save_directory", save_directory_))
+  if (!ethercat_hardware::getParam(node, prefix + "save_directory", save_directory_))
   {
     save_directory_ = "/var/lib/motor_heating_model";
   }
-  if (!nh.getParam("enable_model", enable_model_))
+  if (!ethercat_hardware::getParam(node, prefix + "enable_model", enable_model_))
   {
     enable_model_ = true;
   }
-  if (!nh.getParam("publish_temperature", publish_temperature_))
+  if (!ethercat_hardware::getParam(node, prefix + "publish_temperature", publish_temperature_))
   {
     publish_temperature_ = false;
   }
@@ -130,7 +132,7 @@ MotorHeatingModelCommon::MotorHeatingModelCommon() :
 }
 
 
-void MotorHeatingModelCommon::attach(boost::shared_ptr<MotorHeatingModel> model)
+void MotorHeatingModelCommon::attach(std::shared_ptr<MotorHeatingModel> model)
 {
   { // LOCK
     boost::lock_guard<boost::mutex> lock(mutex_);
@@ -167,7 +169,7 @@ void MotorHeatingModelCommon::saveThreadFunc()
     sleep(10);
     { //LOCK
       boost::lock_guard<boost::mutex> lock(mutex_);
-      BOOST_FOREACH( boost::shared_ptr<MotorHeatingModel> model, models_ )
+      BOOST_FOREACH( std::shared_ptr<MotorHeatingModel> model, models_ )
       {
         model->saveTemperatureState();
       }
@@ -188,13 +190,13 @@ bool MotorHeatingModelCommon::createSaveDirectory()
   // create save directory if it does not already exist
   if (!boost::filesystem::exists(save_directory_))
   {
-    ROS_WARN("Motor heating motor save directory '%s' does not exist, creating it", save_directory_.c_str());
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Motor heating motor save directory '%s' does not exist, creating it", save_directory_.c_str());
     try {
       boost::filesystem::create_directory(save_directory_);
     } 
     catch (const std::exception &e)
     {
-      ROS_ERROR("Error creating save directory '%s' for motor model : %s", 
+      RCLCPP_ERROR(::ethercat_hardware::logger(), "Error creating save directory '%s' for motor model : %s", 
                 save_directory_.c_str(), e.what());
       return false;
     }
@@ -253,16 +255,23 @@ MotorHeatingModel::MotorHeatingModel(const MotorHeatingModelParameters &motor_pa
 }
 
 
-bool MotorHeatingModel::startTemperaturePublisher()
+bool MotorHeatingModel::startTemperaturePublisher(const rclcpp::Node::SharedPtr &node)
 {
   std::string topic("motor_temperature");
   if (!actuator_name_.empty())
   {
     topic = topic + "/" + actuator_name_;
-    publisher_ = new realtime_tools::RealtimePublisher<ethercat_hardware::MotorTemperature>(ros::NodeHandle(), topic, 1, true);
+    if (!node)
+    {
+      RCLCPP_ERROR(::ethercat_hardware::logger(), "No node to create motor temperature publisher");
+      return false;
+    }
+    // latched in ROS 1 -> transient_local
+    publisher_ = new realtime_tools::RealtimePublisher<ethercat_hardware::msg::MotorTemperature>(
+      node->create_publisher<ethercat_hardware::msg::MotorTemperature>(topic, rclcpp::QoS(1).transient_local()));
     if (publisher_ == NULL)
     {
-      ROS_ERROR("Could not allocate realtime publisher");
+      RCLCPP_ERROR(::ethercat_hardware::logger(), "Could not allocate realtime publisher");
       return false;
     }
   }  
@@ -271,8 +280,8 @@ bool MotorHeatingModel::startTemperaturePublisher()
 
 
 
-double MotorHeatingModel::calculateMotorHeatPower(const ethercat_hardware::MotorTraceSample &s, 
-                                                  const ethercat_hardware::ActuatorInfo &ai)
+double MotorHeatingModel::calculateMotorHeatPower(const ethercat_hardware::msg::MotorTraceSample &s, 
+                                                  const ethercat_hardware::msg::ActuatorInfo &ai)
 {
   // Normally the power being put into motor is I^2*R.  
   // However, the motor resistance changes with temperature
@@ -296,7 +305,7 @@ double MotorHeatingModel::calculateMotorHeatPower(const ethercat_hardware::Motor
   {
     if ((heating_power < -0.5) || (heating_power > 15.0))
     {
-      ROS_DEBUG("heating power = %f, output_voltage=%f, backemf_voltage=%f, resistance_voltage=%f, current=%f",
+      RCLCPP_DEBUG(::ethercat_hardware::logger(), "heating power = %f, output_voltage=%f, backemf_voltage=%f, resistance_voltage=%f, current=%f",
                 heating_power, output_voltage, backemf_voltage, resistance_voltage, s.measured_current);
     }
   }
@@ -362,10 +371,10 @@ double MotorHeatingModel::updateFromDowntimeWithInterval(double downtime,
 
 void MotorHeatingModel::updateFromDowntime(double downtime, double saved_ambient_temperature)
 {
-  ROS_DEBUG("Initial temperatures : winding  = %f, housing = %f", winding_temperature_, housing_temperature_);
+  RCLCPP_DEBUG(::ethercat_hardware::logger(), "Initial temperatures : winding  = %f, housing = %f", winding_temperature_, housing_temperature_);
   double saved_downtime = downtime;
 
-  boost::timer timer;
+  const auto timer_start = std::chrono::steady_clock::now();
 
   // Simulate motor heating model first with increasing step sizes : 
   // first 10 ms, then 100ms, and finally 1 seconds steps
@@ -377,13 +386,13 @@ void MotorHeatingModel::updateFromDowntime(double downtime, double saved_ambient
   // If there is any time left over, assume motor has cooled to ambient
   if (downtime > 0.0)
   {
-    ROS_DEBUG("Downtime too long, using ambient temperature as final motor temperature");
+    RCLCPP_DEBUG(::ethercat_hardware::logger(), "Downtime too long, using ambient temperature as final motor temperature");
     winding_temperature_ = saved_ambient_temperature;
     housing_temperature_ = saved_ambient_temperature;
   }
 
-  ROS_DEBUG("Took %f milliseconds to sim %f seconds", timer.elapsed()*1000., saved_downtime);
-  ROS_DEBUG("Final temperatures : winding  = %f, housing = %f", winding_temperature_, housing_temperature_);
+  RCLCPP_DEBUG(::ethercat_hardware::logger(), "Took %f milliseconds to sim %f seconds", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - timer_start).count(), saved_downtime);
+  RCLCPP_DEBUG(::ethercat_hardware::logger(), "Final temperatures : winding  = %f, housing = %f", winding_temperature_, housing_temperature_);
 }
 
 
@@ -424,7 +433,7 @@ void MotorHeatingModel::diagnostics(diagnostic_updater::DiagnosticStatusWrapper 
     }
     else 
     {
-      //ROS_WARN("Duration == 0");
+      //RCLCPP_WARN(::ethercat_hardware::logger(), "Duration == 0");
       average_ambient_temperature = ambient_temperature_;
       average_heating_power = 0.0;
     }
@@ -463,8 +472,8 @@ void MotorHeatingModel::diagnostics(diagnostic_updater::DiagnosticStatusWrapper 
   if ((publisher_ != NULL) && (publisher_->trylock()))
   {    
     // Fill in sample values
-    ethercat_hardware::MotorTemperature &msg(publisher_->msg_);
-    msg.stamp = ros::Time::now();
+    ethercat_hardware::msg::MotorTemperature &msg(publisher_->msg_);
+    msg.stamp = ::ethercat_hardware::now();
     msg.winding_temperature = winding_temperature;
     msg.housing_temperature = housing_temperature;
     msg.ambient_temperature = average_ambient_temperature;
@@ -482,7 +491,7 @@ static bool getStringAttribute(TiXmlElement *elt, const std::string& filename, c
   const char *val_str = elt->Attribute(param_name);
   if (val_str == NULL)
   {
-    ROS_ERROR("No '%s' attribute for actuator '%s'", param_name, filename.c_str());
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "No '%s' attribute for actuator '%s'", param_name, filename.c_str());
     return false;
   }
   value = val_str;
@@ -495,7 +504,7 @@ static bool getDoubleAttribute(TiXmlElement *elt, const std::string& filename, c
   const char *val_str = elt->Attribute(param_name);
   if (val_str == NULL)
   {
-    ROS_ERROR("No '%s' attribute in '%s'", param_name, filename.c_str());
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "No '%s' attribute in '%s'", param_name, filename.c_str());
     return false;
   }
 
@@ -503,7 +512,7 @@ static bool getDoubleAttribute(TiXmlElement *elt, const std::string& filename, c
   value = strtod(val_str, &endptr);
   if ((endptr == val_str) || (endptr < (val_str+strlen(val_str))))
   {
-    ROS_ERROR("Couldn't convert '%s' to double for attribute '%s' in '%s'", 
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Couldn't convert '%s' to double for attribute '%s' in '%s'", 
               val_str, param_name, filename.c_str());
     return false;
   }
@@ -517,7 +526,7 @@ static bool getIntegerAttribute(TiXmlElement *elt, const std::string& filename, 
   const char *val_str = elt->Attribute(param_name);
   if (val_str == NULL)
   {
-    ROS_ERROR("No '%s' attribute in '%s'", param_name, filename.c_str());
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "No '%s' attribute in '%s'", param_name, filename.c_str());
     return false;
   }
 
@@ -525,7 +534,7 @@ static bool getIntegerAttribute(TiXmlElement *elt, const std::string& filename, 
   value = strtol(val_str, &endptr, 0);
   if ((endptr == val_str) || (endptr < (val_str+strlen(val_str))))
   {
-    ROS_ERROR("Couldn't convert '%s' to integer for attribute '%s' in '%s'", 
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Couldn't convert '%s' to integer for attribute '%s' in '%s'", 
               val_str, param_name, filename.c_str());
     return false;
   }
@@ -541,13 +550,13 @@ static void saturateTemperature(double &temperature, const char *name)
 
   if (temperature > max_realistic_temperature)
   {
-    ROS_WARN("%s temperature of %f Celcius is unrealisic. Using %f instead",
+    RCLCPP_WARN(::ethercat_hardware::logger(), "%s temperature of %f Celcius is unrealisic. Using %f instead",
                 name, temperature, max_realistic_temperature);
     temperature = max_realistic_temperature;
   }
   if (temperature < min_realistic_temperature)
   {
-    ROS_WARN("%s temperature of %f Celcius is unrealisic. Using %f instead",
+    RCLCPP_WARN(::ethercat_hardware::logger(), "%s temperature of %f Celcius is unrealisic. Using %f instead",
                 name, temperature, min_realistic_temperature);
     temperature = min_realistic_temperature;
   }
@@ -574,14 +583,14 @@ bool MotorHeatingModel::loadTemperatureState()
 
   if (!boost::filesystem::exists(save_filename_))
   {
-    ROS_WARN("Motor heating model saved file '%s' does not exist.  Using defaults", save_filename_.c_str());
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Motor heating model saved file '%s' does not exist.  Using defaults", save_filename_.c_str());
     return false;
   }
 
   TiXmlDocument xml;
   if (!xml.LoadFile(save_filename_))
   {
-    ROS_ERROR("Unable to parse XML in save file '%s'", save_filename_.c_str());
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Unable to parse XML in save file '%s'", save_filename_.c_str());
     return false;
   }
 
@@ -589,7 +598,7 @@ bool MotorHeatingModel::loadTemperatureState()
   TiXmlElement *motor_temp_elt = xml.RootElement();
   if (motor_temp_elt == NULL)
   {
-    ROS_ERROR("Unable to parse XML in save file '%s'", save_filename_.c_str());
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Unable to parse XML in save file '%s'", save_filename_.c_str());
     return false;
   }
       
@@ -607,7 +616,7 @@ bool MotorHeatingModel::loadTemperatureState()
   const char* expected_version = "1";
   if (version != expected_version)
   {
-    ROS_ERROR("Unknown version '%s', expected '%s'", version.c_str(), expected_version);
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Unknown version '%s', expected '%s'", version.c_str(), expected_version);
     return false;
   }
   
@@ -626,14 +635,14 @@ bool MotorHeatingModel::loadTemperatureState()
 
   if (actuator_name != actuator_name_)
   {
-    ROS_ERROR("In save file '%s' : expected actuator name '%s', got '%s'", 
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "In save file '%s' : expected actuator name '%s', got '%s'", 
               save_filename_.c_str(), actuator_name_.c_str(), actuator_name.c_str());
     return false;
   }  
 
   if (hwid != hwid_)
   {
-    ROS_WARN("In save file '%s' : expected HWID '%s', got '%s'", 
+    RCLCPP_WARN(::ethercat_hardware::logger(), "In save file '%s' : expected HWID '%s', got '%s'", 
               save_filename_.c_str(), hwid_.c_str(), hwid.c_str());    
   }
 
@@ -647,10 +656,10 @@ bool MotorHeatingModel::loadTemperatureState()
   ambient_temperature_ = ambient_temperature;
 
   // Update motor temperature model based on saved time, update time, and saved ambient temperature
-  double downtime = (ros::Time::now() - ros::Time(save_time_sec, save_time_nsec)).toSec();
+  double downtime = (::ethercat_hardware::now() - rclcpp::Time(save_time_sec, save_time_nsec)).seconds();
   if (downtime < 0.0)
   {
-    ROS_WARN("In save file '%s' : save time is %f seconds in future", save_filename_.c_str(), -downtime);
+    RCLCPP_WARN(::ethercat_hardware::logger(), "In save file '%s' : save time is %f seconds in future", save_filename_.c_str(), -downtime);
   }
   else
   {
@@ -695,9 +704,10 @@ bool MotorHeatingModel::saveTemperatureState()
   elmt->SetDoubleAttribute("winding_temperature", winding_temperature);
   elmt->SetDoubleAttribute("housing_temperature", housing_temperature);
   elmt->SetDoubleAttribute("ambient_temperature", ambient_temperature);
-  ros::Time now = ros::Time::now();
-  elmt->SetAttribute("save_time_sec", now.sec);
-  elmt->SetAttribute("save_time_nsec", now.nsec);
+  rclcpp::Time now = ::ethercat_hardware::now();
+  const int64_t now_ns = now.nanoseconds();
+  elmt->SetAttribute("save_time_sec", static_cast<int>(now_ns / 1000000000LL));
+  elmt->SetAttribute("save_time_nsec", static_cast<int>(now_ns % 1000000000LL));
 
   xml.LinkEndChild(decl);
   xml.LinkEndChild( elmt );
@@ -705,7 +715,7 @@ bool MotorHeatingModel::saveTemperatureState()
   // save xml with temporary filename
   if (!xml.SaveFile(tmp_filename))
   {
-    ROS_WARN("Could not save motor heating model file '%s'", tmp_filename.c_str());
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Could not save motor heating model file '%s'", tmp_filename.c_str());
     return false;
   }
 
@@ -719,7 +729,7 @@ bool MotorHeatingModel::saveTemperatureState()
       memcpy(errbuf, "Unknown error\0", 14);
     }
     errbuf[sizeof(errbuf)-1] = '\0';
-    ROS_WARN("Problem renaming '%s' to '%s' : (%d) '%s'", 
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Problem renaming '%s' to '%s' : (%d) '%s'", 
              tmp_filename.c_str(), save_filename_.c_str(), error, errbuf);
     return false;
   }

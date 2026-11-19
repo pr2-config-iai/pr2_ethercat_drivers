@@ -61,22 +61,22 @@ TEST(WG0X, positionDiff)
 TEST(WG0X, timediffToDuration)
 {
   // 1 microsecond ==>  (0 second + 1000 nanoseconds)
-  EXPECT_EQ(WG0X::timediffToDuration(1), ros::Duration(0, 1000));
+  EXPECT_EQ(WG0X::timediffToDuration(1), rclcpp::Duration::from_nanoseconds(1000));
 
   // -1 microsecond ==> - ( 0 second + 1000 nanoseconds )
-  EXPECT_EQ(WG0X::timediffToDuration(-1), ros::Duration(0, -1000));
+  EXPECT_EQ(WG0X::timediffToDuration(-1), rclcpp::Duration::from_nanoseconds(-1000));
 
   // 1,000,000 microseconds ==> ( 1 second + 0 nanoseconds )
-  EXPECT_EQ(WG0X::timediffToDuration(1000000), ros::Duration(1, 0));
+  EXPECT_EQ(WG0X::timediffToDuration(1000000), rclcpp::Duration::from_nanoseconds(1000000000));
 
   // - 1,000,000 microseconds ==> - ( 1 second + 0 nanoseconds )
-  EXPECT_EQ(WG0X::timediffToDuration(-1000000), ros::Duration(-1, 0));
+  EXPECT_EQ(WG0X::timediffToDuration(-1000000), rclcpp::Duration::from_nanoseconds(-1000000000));
 
   // 1,000,001 microseconds ==> ( 1 second + 1 nanoseconds )
-  EXPECT_EQ(WG0X::timediffToDuration(1000001), ros::Duration(1, 1000));
+  EXPECT_EQ(WG0X::timediffToDuration(1000001), rclcpp::Duration::from_nanoseconds(1000001000));
 
   // - 1,000,001 microseconds ==> - ( 1 second + 1 nanoseconds )
-  EXPECT_EQ(WG0X::timediffToDuration(-1000001), ros::Duration(-1, -1000));
+  EXPECT_EQ(WG0X::timediffToDuration(-1000001), rclcpp::Duration::from_nanoseconds(-1000001000));
 }
 
 

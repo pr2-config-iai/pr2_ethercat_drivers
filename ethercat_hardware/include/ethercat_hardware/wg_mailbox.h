@@ -35,7 +35,7 @@
 #pragma once
 
 #include "ethercat_hardware/ethercat_com.h"
-#include <diagnostic_updater/DiagnosticStatusWrapper.h>
+#include <diagnostic_updater/diagnostic_status_wrapper.hpp>
 
 namespace ethercat_hardware
 {

@@ -35,17 +35,18 @@
 #ifndef ETHERCAT_HARDWARE__MOTOR_HEATING_MODEL_H
 #define ETHERCAT_HARDWARE__MOTOR_HEATING_MODEL_H
 
-#include "ethercat_hardware/MotorTemperature.h"
-#include "ethercat_hardware/MotorTraceSample.h"
-#include "ethercat_hardware/ActuatorInfo.h"
+#include <ethercat_hardware/msg/motor_temperature.hpp>
+#include "ethercat_hardware/ros_helpers.h"
+#include <ethercat_hardware/msg/motor_trace_sample.hpp>
+#include <ethercat_hardware/msg/actuator_info.hpp>
 
-#include "realtime_tools/realtime_publisher.h"
-#include "diagnostic_updater/DiagnosticStatusWrapper.h"
+#include <realtime_tools/realtime_publisher.hpp>
+#include <diagnostic_updater/diagnostic_status_wrapper.hpp>
 
 #include <boost/utility.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/thread.hpp>
-#include <boost/shared_ptr.hpp>
+#include <memory>
 
 #include <vector>
 #include <string>
@@ -106,9 +107,10 @@ class MotorHeatingModel;
 class MotorHeatingModelCommon : private boost::noncopyable
 {
 public:
-  /** \brief Constructor will read motor heating mode settings from node handle namespace  
+  /** \brief Constructor will read motor heating mode settings from parameters of \p node
+   *         that start with \p prefix (ROS 1: the "~motor_heating_model" namespace).
    */
-  MotorHeatingModelCommon(ros::NodeHandle nh);
+  MotorHeatingModelCommon(const rclcpp::Node::SharedPtr &node, const std::string &prefix);
   
   /** \brief Constructor will use default settings for all parameters
    */
@@ -119,7 +121,7 @@ public:
   
   /**! \brief Append model to list of models that need to have temperature data saved.
    */
-  void attach(boost::shared_ptr<MotorHeatingModel> model);
+  void attach(std::shared_ptr<MotorHeatingModel> model);
 
   //! Directory where motor model haeting data will be saved.  Defaults to /var/lib/motor_heating_model
   //! If true, then temeperature data to will be periodically saved to file
@@ -143,7 +145,7 @@ protected:
   void saveThreadFunc();
 
   //! List of MotorHeatingModels that need to have file data saved
-  std::vector< boost::shared_ptr<MotorHeatingModel> > models_; 
+  std::vector< std::shared_ptr<MotorHeatingModel> > models_; 
 
   //!Lock around models list
   boost::mutex mutex_;
@@ -161,7 +163,7 @@ public:
                     const std::string &save_directory
                     );
 
-  bool startTemperaturePublisher();
+  bool startTemperaturePublisher(const rclcpp::Node::SharedPtr &node);
 
   /*! \brief Updates motor temperature estimate
    *
@@ -174,8 +176,8 @@ public:
    * 
    */
   bool update(double heating_power, double ambient_temperature, double duration);
-  bool update(const ethercat_hardware::MotorTraceSample &sample, 
-              const ethercat_hardware::ActuatorInfo &actuator_info,
+  bool update(const ethercat_hardware::msg::MotorTraceSample &sample, 
+              const ethercat_hardware::msg::ActuatorInfo &actuator_info,
               double ambient_temperature, double duration)
   {
     double heating_power = calculateMotorHeatPower(sample, actuator_info);
@@ -223,8 +225,8 @@ public:
 
   /*! Determines power being put into motor as heat (in Watts)
    */
-  double calculateMotorHeatPower(const ethercat_hardware::MotorTraceSample &sample,
-                                 const ethercat_hardware::ActuatorInfo &actuator_info);
+  double calculateMotorHeatPower(const ethercat_hardware::msg::MotorTraceSample &sample,
+                                 const ethercat_hardware::msg::ActuatorInfo &actuator_info);
   
 
   //! Load saved temperature estimate from directory
@@ -291,7 +293,7 @@ protected:
   //! Sample interval for trace (in seconds)
   //double trace_sample_interval_;
   //! realtime publisher for MotorHeatingSample
-  realtime_tools::RealtimePublisher<ethercat_hardware::MotorTemperature> *publisher_;
+  realtime_tools::RealtimePublisher<ethercat_hardware::msg::MotorTemperature> *publisher_;
 
   MotorHeatingModelParameters motor_params_;
   std::string actuator_name_;  //!< name of actuator (ex. fl_caster_rotation_motor)

@@ -33,6 +33,7 @@
  *********************************************************************/
 
 #include <iomanip>
+#include "ethercat_hardware/ros_helpers.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -45,9 +46,9 @@
 #include <dll/ethercat_frame.h>
 
 #include <boost/crc.hpp>
-#include <boost/shared_ptr.hpp>
+#include <memory>
 #include <boost/static_assert.hpp>
-#include <boost/make_shared.hpp>
+#include <memory>
 
 // Temporary,, need 'log' fuction that can switch between fprintf and ROS_LOG.
 #define ERR_MODE "\033[41m"
@@ -182,15 +183,20 @@ WG0X::WG0X() :
   int error;
   if ((error = pthread_mutex_init(&wg0x_diagnostics_lock_, NULL)) != 0)
   {
-    ROS_ERROR("WG0X : init diagnostics mutex :%s", strerror(error));
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "WG0X : init diagnostics mutex :%s", strerror(error));
   }
 
 }
 
 WG0X::~WG0X()
 {
-  delete sh_->get_fmmu_config();
-  delete sh_->get_pd_config();
+  // sh_ is only set by construct(); a device destroyed before that (e.g. on an error path
+  // right after the plugin was loaded) must not dereference it.
+  if (sh_)
+  {
+    delete sh_->get_fmmu_config();
+    delete sh_->get_pd_config();
+  }
   delete motor_model_;
 }
 
@@ -211,13 +217,13 @@ void WG0X::construct(EtherCAT_SlaveHandler *sh, int &start_address)
 }
 
 
-/**  \brief Fills in ethercat_hardware::ActuatorInfo from WG0XActuatorInfo
+/**  \brief Fills in ethercat_hardware::msg::ActuatorInfo from WG0XActuatorInfo
  *
  * WG0XAcuatorInfo is a packed structure that comes directly from the device EEPROM.
- * ethercat_hardware::ActuatorInfo is a ROS message type that is used by both
+ * ethercat_hardware::msg::ActuatorInfo is a ROS message type that is used by both
  * motor model and motor heating model. 
  */
-void WG0X::copyActuatorInfo(ethercat_hardware::ActuatorInfo &out,  const WG0XActuatorInfo &in)
+void WG0X::copyActuatorInfo(ethercat_hardware::msg::ActuatorInfo &out,  const WG0XActuatorInfo &in)
 {
   out.id   = in.id_;
   out.name = std::string(in.name_);
@@ -248,10 +254,10 @@ bool WG0X::initializeMotorModel(pr2_hardware_interface::HardwareInterface *hw,
   if (motor_model_ == NULL) 
     return false;
 
-  const ethercat_hardware::ActuatorInfo &ai(actuator_info_msg_);
+  const ethercat_hardware::msg::ActuatorInfo &ai(actuator_info_msg_);
   
   unsigned product_code = sh_->get_product_code();
-  ethercat_hardware::BoardInfo bi;
+  ethercat_hardware::msg::BoardInfo bi;
   bi.description = device_description; 
   bi.product_code = product_code;
   bi.pcb = board_major_;
@@ -264,7 +270,7 @@ bool WG0X::initializeMotorModel(pr2_hardware_interface::HardwareInterface *hw,
   bi.hw_max_current   = config_info_.absolute_current_limit_ * config_info_.nominal_current_scale_;
   bi.poor_measured_motor_voltage = poor_measured_motor_voltage;
 
-  if (!motor_model_->initialize(ai,bi))
+  if (!motor_model_->initialize(ai,bi,node_))
     return false;
   
   // Create digital out that can be used to force trigger of motor trace
@@ -272,26 +278,26 @@ bool WG0X::initializeMotorModel(pr2_hardware_interface::HardwareInterface *hw,
   publish_motor_trace_.command_.data_ = 0;
   publish_motor_trace_.state_.data_ = 0;
   if (!hw->addDigitalOut(&publish_motor_trace_)) {
-    ROS_FATAL("A digital out of the name '%s' already exists", publish_motor_trace_.name_.c_str());
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "A digital out of the name '%s' already exists", publish_motor_trace_.name_.c_str());
     return false;
   }
 
   // When working with experimental setups we don't want motor model to halt motors when it detects a problem.
   // Allow rosparam to disable motor model halting for a specific motor.
-  if (!ros::param::get("~/" + ai.name + "/disable_motor_model_checking", disable_motor_model_checking_))
+  if (!ethercat_hardware::getParam(node_, ai.name + ".disable_motor_model_checking", disable_motor_model_checking_))
   {
     disable_motor_model_checking_ = false;
   }
   if (disable_motor_model_checking_)
   {
-    ROS_WARN("Disabling motor model on %s", ai.name.c_str());
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Disabling motor model on %s", ai.name.c_str());
   }
 
   return true;
 }
 
 
-boost::shared_ptr<ethercat_hardware::MotorHeatingModelCommon> WG0X::motor_heating_model_common_;
+std::shared_ptr<ethercat_hardware::MotorHeatingModelCommon> WG0X::motor_heating_model_common_;
 
 bool WG0X::initializeMotorHeatingModel(bool allow_unprogrammed)
 {
@@ -300,7 +306,7 @@ bool WG0X::initializeMotorHeatingModel(bool allow_unprogrammed)
   ethercat_hardware::MotorHeatingModelParametersEepromConfig config;
   if (!readMotorHeatingModelParametersFromEeprom(&com, config))
   {
-    ROS_FATAL("Unable to read motor heating model config parameters from EEPROM");
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to read motor heating model config parameters from EEPROM");
     return false;
   }
 
@@ -310,17 +316,17 @@ bool WG0X::initializeMotorHeatingModel(bool allow_unprogrammed)
   {
     if (allow_unprogrammed)
     {
-      ROS_WARN("%s EEPROM does not contain motor heating model parameters",
+      RCLCPP_WARN(::ethercat_hardware::logger(), "%s EEPROM does not contain motor heating model parameters",
                actuator_info_.name_);
       return true;
     }
     else 
     {
-      ROS_WARN("%s EEPROM does not contain motor heating model parameters",
+      RCLCPP_WARN(::ethercat_hardware::logger(), "%s EEPROM does not contain motor heating model parameters",
                actuator_info_.name_);
       return true;
       // TODO: once there is ability to update all MCB iwth motorconf, this is will become a fatal error
-      ROS_FATAL("%s EEPROM does not contain motor heating model parameters", 
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "%s EEPROM does not contain motor heating model parameters", 
                 actuator_info_.name_);
       return false;
     }
@@ -346,21 +352,20 @@ bool WG0X::initializeMotorHeatingModel(bool allow_unprogrammed)
   // All motor heating models use shared settings structure
   if (motor_heating_model_common_.get() == NULL)
   {
-    ros::NodeHandle nh("~motor_heating_model");
-    motor_heating_model_common_ = boost::make_shared<ethercat_hardware::MotorHeatingModelCommon>(nh);
+    motor_heating_model_common_ = std::make_shared<ethercat_hardware::MotorHeatingModelCommon>(node_, "motor_heating_model.");
     motor_heating_model_common_->initialize();
     // Only display following warnings once.
     if (!motor_heating_model_common_->enable_model_)
     {
-      ROS_WARN("Motor heating model disabled for all devices");
+      RCLCPP_WARN(::ethercat_hardware::logger(), "Motor heating model disabled for all devices");
     }
     if (!motor_heating_model_common_->load_save_files_)
     {
-      ROS_WARN("Not loading motor heating model files");
+      RCLCPP_WARN(::ethercat_hardware::logger(), "Not loading motor heating model files");
     }
     if (!motor_heating_model_common_->update_save_files_)
     {
-      ROS_WARN("Not saving motor heating model files");
+      RCLCPP_WARN(::ethercat_hardware::logger(), "Not saving motor heating model files");
     }
   }
 
@@ -370,7 +375,7 @@ bool WG0X::initializeMotorHeatingModel(bool allow_unprogrammed)
   }
     
   motor_heating_model_ = 
-    boost::make_shared<ethercat_hardware::MotorHeatingModel>(config.params_, 
+    std::make_shared<ethercat_hardware::MotorHeatingModel>(config.params_, 
                                                              actuator_info_.name_, 
                                                              hwid.str(),
                                                              motor_heating_model_common_->save_directory_); 
@@ -379,12 +384,12 @@ bool WG0X::initializeMotorHeatingModel(bool allow_unprogrammed)
   {
     if (!motor_heating_model_->loadTemperatureState())
     {
-      ROS_WARN("Could not load motor temperature state for %s", actuator_info_.name_);
+      RCLCPP_WARN(::ethercat_hardware::logger(), "Could not load motor temperature state for %s", actuator_info_.name_);
     }
   }
   if (motor_heating_model_common_->publish_temperature_)
   {
-    motor_heating_model_->startTemperaturePublisher();
+    motor_heating_model_->startTemperaturePublisher(node_);
   }
   motor_heating_model_common_->attach(motor_heating_model_);
 
@@ -394,7 +399,7 @@ bool WG0X::initializeMotorHeatingModel(bool allow_unprogrammed)
 
 int WG0X::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_unprogrammed)
 {
-  ROS_DEBUG("Device #%02d: WG0%d (%#08x) Firmware Revision %d.%02d, PCB Revision %c.%02d, Serial #: %d", 
+  RCLCPP_DEBUG(::ethercat_hardware::logger(), "Device #%02d: WG0%d (%#08x) Firmware Revision %d.%02d, PCB Revision %c.%02d, Serial #: %d", 
             sh_->get_ring_position(),
             sh_->get_product_code() % 100,
             sh_->get_product_code(), fw_major_, fw_minor_,
@@ -409,7 +414,7 @@ int WG0X::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_u
   {
     if (fw_major_ != 1 || fw_minor_ < 7)
     {
-      ROS_FATAL("Unsupported firmware revision %d.%02d", fw_major_, fw_minor_);
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "Unsupported firmware revision %d.%02d", fw_major_, fw_minor_);
       return -1;
     }
   }
@@ -417,22 +422,22 @@ int WG0X::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_u
   {
     if ((fw_major_ == 0 && fw_minor_ < 4) /*|| (fw_major_ == 1 && fw_minor_ < 0)*/)
     {
-      ROS_FATAL("Unsupported firmware revision %d.%02d", fw_major_, fw_minor_);
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "Unsupported firmware revision %d.%02d", fw_major_, fw_minor_);
       return -1;
     }
   }
 
   if (readMailbox(&com, WG0XConfigInfo::CONFIG_INFO_BASE_ADDR, &config_info_, sizeof(config_info_)) != 0)
   {
-    ROS_FATAL("Unable to load configuration information");
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to load configuration information");
     return -1;
   }
-  ROS_DEBUG("            Serial #: %05d", config_info_.device_serial_number_);
+  RCLCPP_DEBUG(::ethercat_hardware::logger(), "            Serial #: %05d", config_info_.device_serial_number_);
   double board_max_current = double(config_info_.absolute_current_limit_) * config_info_.nominal_current_scale_;
 
   if (!readActuatorInfoFromEeprom(&com, actuator_info_))
   {
-    ROS_FATAL("Unable to read actuator info from EEPROM");
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to read actuator info from EEPROM");
     return -1;
   }
   
@@ -441,16 +446,16 @@ int WG0X::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_u
     if (actuator_info_.major_ != 0 || actuator_info_.minor_ != 2)
     {
       if (allow_unprogrammed)
-        ROS_WARN("Unsupported actuator info version (%d.%d != 0.2).  Please reprogram device #%02d", actuator_info_.major_, actuator_info_.minor_, sh_->get_ring_position());
+        RCLCPP_WARN(::ethercat_hardware::logger(), "Unsupported actuator info version (%d.%d != 0.2).  Please reprogram device #%02d", actuator_info_.major_, actuator_info_.minor_, sh_->get_ring_position());
       else
       {
-        ROS_FATAL("Unsupported actuator info version (%d.%d != 0.2).  Please reprogram device #%02d", actuator_info_.major_, actuator_info_.minor_, sh_->get_ring_position());
+        RCLCPP_FATAL(::ethercat_hardware::logger(), "Unsupported actuator info version (%d.%d != 0.2).  Please reprogram device #%02d", actuator_info_.major_, actuator_info_.minor_, sh_->get_ring_position());
         return -1;
       }
     }
 
     actuator_.name_ = actuator_info_.name_;
-    ROS_DEBUG("            Name: %s", actuator_info_.name_);
+    RCLCPP_DEBUG(::ethercat_hardware::logger(), "            Name: %s", actuator_info_.name_);
 
     // Copy actuator info read from eeprom, into msg type
     copyActuatorInfo(actuator_info_msg_, actuator_info_);
@@ -467,7 +472,7 @@ int WG0X::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_u
       // Register actuator with pr2_hardware_interface::HardwareInterface
       if (hw && !hw->addActuator(&actuator_))
       {
-          ROS_FATAL("An actuator of the name '%s' already exists.  Device #%02d has a duplicate name", actuator_.name_.c_str(), sh_->get_ring_position());
+          RCLCPP_FATAL(::ethercat_hardware::logger(), "An actuator of the name '%s' already exists.  Device #%02d has a duplicate name", actuator_.name_.c_str(), sh_->get_ring_position());
           return -1;
       }
 
@@ -477,7 +482,7 @@ int WG0X::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_u
     digital_out_.name_ = actuator_info_.name_;
     if (hw && !hw->addDigitalOut(&digital_out_))
     {
-        ROS_FATAL("A digital out of the name '%s' already exists.  Device #%02d has a duplicate name", digital_out_.name_.c_str(), sh_->get_ring_position());
+        RCLCPP_FATAL(::ethercat_hardware::logger(), "A digital out of the name '%s' already exists.  Device #%02d has a duplicate name", digital_out_.name_.c_str(), sh_->get_ring_position());
         return -1;
     }
 
@@ -487,19 +492,19 @@ int WG0X::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_u
       double zero_offset;
       if (readAppRam(&com, zero_offset))
       {
-        ROS_DEBUG("Read calibration from device %s: %f", actuator_info_.name_, zero_offset);
+        RCLCPP_DEBUG(::ethercat_hardware::logger(), "Read calibration from device %s: %f", actuator_info_.name_, zero_offset);
         actuator_.state_.zero_offset_ = zero_offset;
         cached_zero_offset_ = zero_offset;
         calibration_status_ = SAVED_CALIBRATION;
       }
       else
       {
-        ROS_DEBUG("No calibration offset was stored on device %s", actuator_info_.name_);
+        RCLCPP_DEBUG(::ethercat_hardware::logger(), "No calibration offset was stored on device %s", actuator_info_.name_);
       }
     }
     else if (app_ram_status_ == APP_RAM_MISSING)
     {
-      ROS_WARN("Device %s does not support storing calibration offsets", actuator_info_.name_);
+      RCLCPP_WARN(::ethercat_hardware::logger(), "Device %s does not support storing calibration offsets", actuator_info_.name_);
     }
     else if (app_ram_status_ == APP_RAM_NOT_APPLICABLE)
     {
@@ -509,14 +514,14 @@ int WG0X::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_u
     // Make sure motor current limit is less than board current limit
     if (actuator_info_.max_current_ > board_max_current)
     {
-      ROS_WARN("WARNING: Device #%02d : motor current limit (%f) greater than board current limit (%f)", 
+      RCLCPP_WARN(::ethercat_hardware::logger(), "WARNING: Device #%02d : motor current limit (%f) greater than board current limit (%f)", 
                sh_->get_ring_position(), actuator_info_.max_current_, board_max_current);
     }
     max_current_ = std::min(board_max_current, actuator_info_.max_current_);
   }
   else if (allow_unprogrammed)
   {
-    ROS_WARN("WARNING: Device #%02d (%d%05d) is not programmed", 
+    RCLCPP_WARN(::ethercat_hardware::logger(), "WARNING: Device #%02d (%d%05d) is not programmed", 
              sh_->get_ring_position(), sh_->get_product_code(), sh_->get_serial());
     //actuator_info_.crc32_264_ = 0;
     //actuator_info_.crc32_256_ = 0;
@@ -525,7 +530,7 @@ int WG0X::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_u
   }
   else
   {
-    ROS_FATAL("Device #%02d (%d%05d) is not programmed, aborting...", 
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Device #%02d (%d%05d) is not programmed, aborting...", 
               sh_->get_ring_position(), sh_->get_product_code(), sh_->get_serial());
     return -1;
   }
@@ -540,7 +545,7 @@ int WG0X::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_u
   if (!attr) { \
     c = elt->FirstChildElement((a)); \
     if (!c || !(attr = c->GetText())) { \
-      ROS_FATAL("Actuator is missing the attribute "#a); \
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "Actuator is missing the attribute "#a); \
       exit(EXIT_FAILURE); \
     } \
   } \
@@ -581,7 +586,7 @@ void WG0X::packCommand(unsigned char *buffer, bool halt, bool reset)
   {
     if (tryLockWG0XDiagnostics())
     {
-      ROS_DEBUG("Calibration change of %s, new %f, old %f", actuator_info_.name_, zero_offset, cached_zero_offset_);
+      RCLCPP_DEBUG(::ethercat_hardware::logger(), "Calibration change of %s, new %f, old %f", actuator_info_.name_, zero_offset, cached_zero_offset_);
       cached_zero_offset_ = zero_offset;
       wg0x_collect_diagnostics_.zero_offset_ = zero_offset;
       calibration_status_ = CONTROLLER_CALIBRATION;
@@ -623,11 +628,11 @@ bool WG0X::unpackState(unsigned char *this_buffer, unsigned char *prev_buffer)
 
   // Do not report timestamp directly to controllers because 32bit integer 
   // value in microseconds will overflow every 72 minutes.   
-  // Instead a accumulate small time differences into a ros::Duration variable
+  // Instead a accumulate small time differences into a rclcpp::Duration variable
   int32_t timediff = WG0X::timestampDiff(this_status->timestamp_, prev_status->timestamp_);
   sample_timestamp_ += WG0X::timediffToDuration(timediff);
-  state.sample_timestamp_ = sample_timestamp_;   //ros::Duration is preferred source of time for controllers
-  state.timestamp_ = sample_timestamp_.toSec();  //double value is for backwards compatibility
+  state.sample_timestamp_ = sample_timestamp_;   //rclcpp::Duration is preferred source of time for controllers
+  state.timestamp_ = sample_timestamp_.seconds();  //double value is for backwards compatibility
   
   state.device_id_ = sh_->get_ring_position();
   
@@ -688,17 +693,16 @@ int32_t WG0X::timestampDiff(uint32_t new_timestamp, uint32_t old_timestamp)
 }
 
 /**
- * Convert timestamp difference to ros::Duration.  Timestamp is assumed to be in microseconds
+ * Convert timestamp difference to rclcpp::Duration.  Timestamp is assumed to be in microseconds
  *
  * It is assumed that each timestamps is exactly 32bit and can wrap around from 0xFFFFFFFF back to 0. 
  * In this case  1 - 4294967295 should equal 2 not -4294967294.  (Note : 0xFFFFFFFF = 4294967295)
  */
-ros::Duration WG0X::timediffToDuration(int32_t timediff_usec)
+rclcpp::Duration WG0X::timediffToDuration(int32_t timediff_usec)
 {
-  static const int USEC_PER_SEC = 1000000;
-  int sec  = timediff_usec / USEC_PER_SEC;
-  int nsec = (timediff_usec % USEC_PER_SEC)*1000;
-  return ros::Duration(sec,nsec);
+  // ROS 1 used ros::Duration(sec, nsec), which normalizes negative nsec. rclcpp::Duration's
+  // (sec, nsec) ctor takes unsigned nsec, so go through nanoseconds to keep negative diffs right.
+  return rclcpp::Duration::from_nanoseconds(static_cast<int64_t>(timediff_usec) * 1000);
 }
 
 
@@ -754,7 +758,7 @@ bool WG0X::verifyState(WG0XStatus *this_status, WG0XStatus *prev_status)
   if ((motor_model_ != NULL) || (motor_heating_model_ != NULL))
   {
     // Both motor model and motor heating model use MotorTraceSample
-    ethercat_hardware::MotorTraceSample &s(motor_trace_sample_);
+    ethercat_hardware::msg::MotorTraceSample &s(motor_trace_sample_);
     double last_executed_current =  this_status->programmed_current_ * config_info_.nominal_current_scale_;
     double supply_voltage = double(prev_status->supply_voltage_) * config_info_.nominal_voltage_scale_;
     double pwm_ratio = double(this_status->programmed_pwm_value_) / double(PWM_MAX);
@@ -929,11 +933,11 @@ void WG0X::collectDiagnostics(EthercatCom *com)
     if ((app_ram_status_ == APP_RAM_PRESENT) && (dg.zero_offset_ != dg.cached_zero_offset_))
     {
       if (writeAppRam(com, dg.zero_offset_)){
-	ROS_DEBUG("Writing new calibration to device %s, new %f, old %f", actuator_info_.name_, dg.zero_offset_, dg.cached_zero_offset_);
+	RCLCPP_DEBUG(::ethercat_hardware::logger(), "Writing new calibration to device %s, new %f, old %f", actuator_info_.name_, dg.zero_offset_, dg.cached_zero_offset_);
 	dg.cached_zero_offset_ = dg.zero_offset_;
       }
       else{
-	ROS_ERROR("Failed to write new calibration to device %s, new %f, old %f", actuator_info_.name_, dg.zero_offset_, dg.cached_zero_offset_);
+	RCLCPP_ERROR(::ethercat_hardware::logger(), "Failed to write new calibration to device %s, new %f, old %f", actuator_info_.name_, dg.zero_offset_, dg.cached_zero_offset_);
 	// Diagnostics thread will try again next update cycle
       }
     }
@@ -1002,7 +1006,7 @@ bool WG0X::readActuatorInfoFromEeprom(EthercatCom *com, WG0XActuatorInfo &actuat
 
   if (!eeprom_.readEepromPage(com, &mailbox_, ACTUATOR_INFO_PAGE, &actuator_info, sizeof(actuator_info)))
   {
-    ROS_ERROR("Reading acutuator info from eeprom");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Reading acutuator info from eeprom");
     return false;
   }
   return true;
@@ -1021,7 +1025,7 @@ bool WG0X::readMotorHeatingModelParametersFromEeprom(EthercatCom *com, MotorHeat
 
   if (!eeprom_.readEepromPage(com, &mailbox_, config.EEPROM_PAGE, &config, sizeof(config)))
   {
-    ROS_ERROR("Reading motor heating model config from eeprom");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Reading motor heating model config from eeprom");
     return false;
   }
   return true;
@@ -1052,7 +1056,7 @@ bool WG0X::program(EthercatCom *com, const WG0XActuatorInfo &actutor_info)
 {
   if (!eeprom_.writeEepromPage(com, &mailbox_, ACTUATOR_INFO_PAGE, &actutor_info, sizeof(actutor_info)))
   {
-    ROS_ERROR("Writing actuator infomation to EEPROM");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Writing actuator infomation to EEPROM");
     return false;
   }
   
@@ -1078,7 +1082,7 @@ bool WG0X::program(EthercatCom *com, const ethercat_hardware::MotorHeatingModelP
 {
   if (!eeprom_.writeEepromPage(com, &mailbox_, heating_config.EEPROM_PAGE, &heating_config, sizeof(heating_config)))
   {
-    ROS_ERROR("Writing motor heating model configuration to EEPROM");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Writing motor heating model configuration to EEPROM");
     return false;
   }
   

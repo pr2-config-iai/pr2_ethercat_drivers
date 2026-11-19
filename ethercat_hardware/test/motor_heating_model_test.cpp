@@ -1,8 +1,7 @@
 #include <gtest/gtest.h>
 #include <string.h>
 
-#include <boost/shared_ptr.hpp>
-#include <boost/make_shared.hpp>
+#include <memory>
 
 #include "ethercat_hardware/motor_heating_model.h"
 
@@ -39,14 +38,14 @@ protected:
     // Motor params (for caster motor)
     MotorHeatingModelParameters params( casterMotorHeatingModelParams() );
     
-    boost::shared_ptr<MotorHeatingModelCommon> common = boost::make_shared<MotorHeatingModelCommon>();
+    std::shared_ptr<MotorHeatingModelCommon> common = std::make_shared<MotorHeatingModelCommon>();
     common->load_save_files_   = false;
     common->update_save_files_ = false;
     common->save_directory_    = "/tmp/motor_heating_model";
     
     // Make two motor heating model objects
-    model_1_ = boost::make_shared<MotorHeatingModel>(params, "motor_1", "hwid", "actuator_name");
-    model_2_ = boost::make_shared<MotorHeatingModel>(params, "motor_2", "hwid", "actuator_name");
+    model_1_ = std::make_shared<MotorHeatingModel>(params, "motor_1", "hwid", "actuator_name");
+    model_2_ = std::make_shared<MotorHeatingModel>(params, "motor_2", "hwid", "actuator_name");
   }
 
 
@@ -70,8 +69,8 @@ public:
     model_2_->updateFromDowntime(downtime, ambient_temperature);
   }
 
-  boost::shared_ptr<MotorHeatingModel> model_1_;
-  boost::shared_ptr<MotorHeatingModel> model_2_;
+  std::shared_ptr<MotorHeatingModel> model_1_;
+  std::shared_ptr<MotorHeatingModel> model_2_;
 };
 
 

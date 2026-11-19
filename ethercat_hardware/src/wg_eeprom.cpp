@@ -33,7 +33,8 @@
  *********************************************************************/
 
 #include "ethercat_hardware/wg_eeprom.h"
-#include "ros/ros.h"
+#include <unistd.h>
+#include "ethercat_hardware/ros_helpers.h"
 
 #include <boost/static_assert.hpp>
 #include <boost/thread/mutex.hpp>
@@ -129,7 +130,7 @@ bool WGEeprom::waitForSpiEepromReady(EthercatCom *com, WGMailbox *mbx)
     ++tries;
     if (!readSpiEepromCmd(com, mbx, cmd))
     {
-      ROS_ERROR("Error reading SPI Eeprom Cmd busy bit");
+      RCLCPP_ERROR(::ethercat_hardware::logger(), "Error reading SPI Eeprom Cmd busy bit");
       return false;
     }
 
@@ -141,7 +142,7 @@ bool WGEeprom::waitForSpiEepromReady(EthercatCom *com, WGMailbox *mbx)
     usleep(100);
   } while (tries <= 10);
 
-  ROS_ERROR("Timed out waiting for SPI state machine to be idle (%d)", tries);
+  RCLCPP_ERROR(::ethercat_hardware::logger(), "Timed out waiting for SPI state machine to be idle (%d)", tries);
   return false;
 }
 
@@ -165,7 +166,7 @@ bool WGEeprom::sendSpiEepromCmd(EthercatCom *com, WGMailbox *mbx, const WG0XSpiE
   // Send command
   if (mbx->writeMailbox(com, WG0XSpiEepromCmd::SPI_COMMAND_ADDR, &cmd, sizeof(cmd)))
   {
-    ROS_ERROR("Error writing SPI EEPROM command");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Error writing SPI EEPROM command");
     return false;
   }
 
@@ -183,7 +184,7 @@ bool WGEeprom::sendSpiEepromCmd(EthercatCom *com, WGMailbox *mbx, const WG0XSpiE
 
     if (stat.operation_ != cmd.operation_)
     {
-      ROS_ERROR("Invalid readback of SPI EEPROM operation : got 0x%X, expected 0x%X\n", stat.operation_, cmd.operation_);
+      RCLCPP_ERROR(::ethercat_hardware::logger(), "Invalid readback of SPI EEPROM operation : got 0x%X, expected 0x%X\n", stat.operation_, cmd.operation_);
       return false;
     }
 
@@ -192,7 +193,7 @@ bool WGEeprom::sendSpiEepromCmd(EthercatCom *com, WGMailbox *mbx, const WG0XSpiE
     {
       if (tries > 0) 
       {
-        ROS_WARN("Eeprom state machine took %d cycles", tries);
+        RCLCPP_WARN(::ethercat_hardware::logger(), "Eeprom state machine took %d cycles", tries);
       }
       return true;;
     }
@@ -201,7 +202,7 @@ bool WGEeprom::sendSpiEepromCmd(EthercatCom *com, WGMailbox *mbx, const WG0XSpiE
     usleep(100);
   } while (++tries < 10);
 
-  ROS_ERROR("Eeprom SPI state machine busy after %d cycles", tries);
+  RCLCPP_ERROR(::ethercat_hardware::logger(), "Eeprom SPI state machine busy after %d cycles", tries);
   return false;
 }
 
@@ -226,13 +227,13 @@ bool WGEeprom::readEepromPage(EthercatCom *com, WGMailbox *mbx, unsigned page, v
 
   if (length > MAX_EEPROM_PAGE_SIZE)
   {
-    ROS_ERROR("Eeprom read length %d > %d", length, MAX_EEPROM_PAGE_SIZE);
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Eeprom read length %d > %d", length, MAX_EEPROM_PAGE_SIZE);
     return false;
   }
 
   if (page >= NUM_EEPROM_PAGES)
   {
-    ROS_ERROR("Eeprom read page %d > %d", page, NUM_EEPROM_PAGES-1);
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Eeprom read page %d > %d", page, NUM_EEPROM_PAGES-1);
     return false;
   }
 
@@ -242,7 +243,7 @@ bool WGEeprom::readEepromPage(EthercatCom *com, WGMailbox *mbx, unsigned page, v
   memset(data,0,length);  
   if (mbx->writeMailbox(com, WG0XSpiEepromCmd::SPI_BUFFER_ADDR, data, length)) 
   {
-    ROS_ERROR("Error zeroing eeprom data buffer");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Error zeroing eeprom data buffer");
     return false;
   }
 
@@ -254,7 +255,7 @@ bool WGEeprom::readEepromPage(EthercatCom *com, WGMailbox *mbx, unsigned page, v
   cmd.build_read(page);
   if (!sendSpiEepromCmd(com, mbx, cmd)) 
   {
-    ROS_ERROR("Error sending SPI read command");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Error sending SPI read command");
     return false;
   }
 
@@ -264,7 +265,7 @@ bool WGEeprom::readEepromPage(EthercatCom *com, WGMailbox *mbx, unsigned page, v
   // Read eeprom page data from FPGA buffer
   if (mbx->readMailbox(com, WG0XSpiEepromCmd::SPI_BUFFER_ADDR, data, length)) 
   {
-    ROS_ERROR("Error reading eeprom data from buffer");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Error reading eeprom data from buffer");
     return false;
   }
 
@@ -292,13 +293,13 @@ bool WGEeprom::writeEepromPage(EthercatCom *com, WGMailbox *mbx, unsigned page, 
 
   if (length > 264)
   {
-    ROS_ERROR("Eeprom write length %d > %d", length, MAX_EEPROM_PAGE_SIZE);
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Eeprom write length %d > %d", length, MAX_EEPROM_PAGE_SIZE);
     return false;
   }
 
   if (page >= NUM_EEPROM_PAGES)
   {
-    ROS_ERROR("Eeprom write page %d > %d", page, NUM_EEPROM_PAGES-1);
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Eeprom write page %d > %d", page, NUM_EEPROM_PAGES-1);
     return false;
   }
 
@@ -322,7 +323,7 @@ bool WGEeprom::writeEepromPage(EthercatCom *com, WGMailbox *mbx, unsigned page, 
   // Write data to FPGA buffer
   if (mbx->writeMailbox(com, WG0XSpiEepromCmd::SPI_BUFFER_ADDR, write_buf, MAX_EEPROM_PAGE_SIZE))
   {
-    ROS_ERROR("Write of SPI EEPROM buffer failed");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Write of SPI EEPROM buffer failed");
     return false;
   }
 
@@ -331,7 +332,7 @@ bool WGEeprom::writeEepromPage(EthercatCom *com, WGMailbox *mbx, unsigned page, 
   cmd.build_write(page);
   if (!sendSpiEepromCmd(com, mbx, cmd)) 
   {
-    ROS_ERROR("Error giving SPI EEPROM write command");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Error giving SPI EEPROM write command");
     return false;
   }
 
@@ -375,13 +376,13 @@ bool WGEeprom::waitForEepromReady(EthercatCom *com, WGMailbox *mbx)
 
   if (!status_reg.ready_) 
   {
-    ROS_ERROR("Eeprom still busy after %d cycles", tries);
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Eeprom still busy after %d cycles", tries);
     return false;
   } 
 
   if (tries > 10)
   {
-    ROS_WARN("EEPROM took %d cycles to be ready", tries);
+    RCLCPP_WARN(::ethercat_hardware::logger(), "EEPROM took %d cycles to be ready", tries);
   }
   return true;
 }
@@ -411,7 +412,7 @@ bool WGEeprom::readEepromStatusReg(EthercatCom *com, WGMailbox *mbx, EepromStatu
   BOOST_STATIC_ASSERT(sizeof(data) == 2);
   if (mbx->writeMailbox(com, WG0XSpiEepromCmd::SPI_BUFFER_ADDR, data, sizeof(data)))
   {
-    ROS_ERROR("Writing SPI buffer");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Writing SPI buffer");
     return false;
   }
     
@@ -420,7 +421,7 @@ bool WGEeprom::readEepromStatusReg(EthercatCom *com, WGMailbox *mbx, EepromStatu
     cmd.build_arbitrary(sizeof(data));
     if (!sendSpiEepromCmd(com, mbx, cmd)) 
     {
-      ROS_ERROR("Sending SPI abitrary command");
+      RCLCPP_ERROR(::ethercat_hardware::logger(), "Sending SPI abitrary command");
       return false;
     }
   }
@@ -428,7 +429,7 @@ bool WGEeprom::readEepromStatusReg(EthercatCom *com, WGMailbox *mbx, EepromStatu
   // Data read from device should now be stored in FPGA buffer
   if (mbx->readMailbox(com, WG0XSpiEepromCmd::SPI_BUFFER_ADDR, data, sizeof(data)))
   {
-    ROS_ERROR("Reading status register data from SPI buffer");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Reading status register data from SPI buffer");
     return false;
   }
  
@@ -458,7 +459,7 @@ bool WGEeprom::readSpiEepromCmd(EthercatCom *com, WGMailbox *mbx, WG0XSpiEepromC
   BOOST_STATIC_ASSERT(sizeof(WG0XSpiEepromCmd) == 3);
   if (mbx->readMailbox(com, WG0XSpiEepromCmd::SPI_COMMAND_ADDR, &cmd, sizeof(cmd)))
   {
-    ROS_ERROR("Reading SPI command register with mailbox");
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Reading SPI command register with mailbox");
     return false;
   }
   

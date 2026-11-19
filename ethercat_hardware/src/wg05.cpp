@@ -33,6 +33,8 @@
  *********************************************************************/
 
 #include <iomanip>
+#include <unistd.h>
+#include "ethercat_hardware/ros_helpers.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -63,7 +65,7 @@ void WG05::construct(EtherCAT_SlaveHandler *sh, int &start_address)
 
 
   EtherCAT_FMMU_Config *fmmu = new EtherCAT_FMMU_Config(2);
-  //ROS_DEBUG("device %d, command  0x%X = 0x10000+%d", (int)sh->get_ring_position(), start_address, start_address-0x10000);
+  //RCLCPP_DEBUG(::ethercat_hardware::logger(), "device %d, command  0x%X = 0x10000+%d", (int)sh->get_ring_position(), start_address, start_address-0x10000);
   (*fmmu)[0] = EC_FMMU(start_address, // Logical start address
                        command_size_,// Logical length
                        0x00, // Logical StartBit
@@ -76,7 +78,7 @@ void WG05::construct(EtherCAT_SlaveHandler *sh, int &start_address)
 
   start_address += command_size_;
 
-  //ROS_DEBUG("device %d, status   0x%X = 0x10000+%d", (int)sh->get_ring_position(), start_address, start_address-0x10000);
+  //RCLCPP_DEBUG(::ethercat_hardware::logger(), "device %d, status   0x%X = 0x10000+%d", (int)sh->get_ring_position(), start_address, start_address-0x10000);
   (*fmmu)[1] = EC_FMMU(start_address, // Logical start address
                        base_status, // Logical length
                        0x00, // Logical StartBit
@@ -134,7 +136,7 @@ int WG05::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_u
       double board_resistance = 0.8;
       if (!WG0X::initializeMotorModel(hw, "WG005", max_pwm_ratio, board_resistance, poor_measured_motor_voltage)) 
       {
-        ROS_FATAL("Initializing motor trace failed");
+        RCLCPP_FATAL(::ethercat_hardware::logger(), "Initializing motor trace failed");
         sleep(1); // wait for ros to flush rosconsole output
         return -1;
       }

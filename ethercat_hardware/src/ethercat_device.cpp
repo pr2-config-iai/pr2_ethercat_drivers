@@ -33,6 +33,8 @@
  *********************************************************************/
 
 #include "ethercat_hardware/ethercat_device.h"
+#include <unistd.h>
+#include "ethercat_hardware/ros_helpers.h"
 
 #include <tinyxml.h>
 
@@ -243,7 +245,7 @@ void EthercatDeviceDiagnostics::collect(EthercatCom *com, EtherCAT_SlaveHandler 
       errorCountersMayBeCleared_ = false;
     }
     if (errorCountersPrev_.isGreaterThan(e)) {
-      ROS_ERROR("Device %d : previous port error counters less current values", sh->get_ring_position());
+      RCLCPP_ERROR(::ethercat_hardware::logger(), "Device %d : previous port error counters less current values", sh->get_ring_position());
     }
 
     // Accumulate
@@ -333,7 +335,7 @@ void EthercatDevice::construct(EtherCAT_SlaveHandler *sh, int &start_address)
   sh_ = sh;
 }
 
-void EthercatDevice::construct(ros::NodeHandle &nh)
+void EthercatDevice::construct(const std::string &param_prefix)
 {
   // empty
 }
@@ -348,14 +350,14 @@ EthercatDevice::EthercatDevice() : use_ros_(true)
 
   int error = pthread_mutex_init(&newDiagnosticsIndexLock_, NULL);
   if (error != 0) {
-    ROS_FATAL("Initializing indexLock failed : %s", strerror(error));
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Initializing indexLock failed : %s", strerror(error));
     sleep(1); // wait for ros to flush rosconsole output
     exit(EXIT_FAILURE);
   }
 
   error = pthread_mutex_init(&diagnosticsLock_, NULL);
   if (error != 0) {
-    ROS_FATAL("Initializing diagnositcsLock failed : %s", strerror(error));
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Initializing diagnositcsLock failed : %s", strerror(error));
     sleep(1); // wait for ros to flush rosconsole output
     exit(EXIT_FAILURE);
   }    
@@ -575,7 +577,7 @@ void EthercatDevice::diagnostics(diagnostic_updater::DiagnosticStatusWrapper &d,
   this->ethercatDiagnostics(d, 4); //assume unknown device has 4 ports
 }
 
-void EthercatDevice::multiDiagnostics(vector<diagnostic_msgs::DiagnosticStatus> &vec, unsigned char *buffer)
+void EthercatDevice::multiDiagnostics(vector<diagnostic_msgs::msg::DiagnosticStatus> &vec, unsigned char *buffer)
 {
   // Clean up recycled status object before reusing it.
   diagnostic_status_.clearSummary();

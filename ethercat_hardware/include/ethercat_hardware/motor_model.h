@@ -6,13 +6,14 @@
 #include <string>
 #include <vector>
 
-#include <realtime_tools/realtime_publisher.h>
-#include <ethercat_hardware/MotorTraceSample.h>
-#include <ethercat_hardware/MotorTrace.h>
-#include <ethercat_hardware/ActuatorInfo.h>
-#include <ethercat_hardware/BoardInfo.h>
+#include <realtime_tools/realtime_publisher.hpp>
+#include <ethercat_hardware/msg/motor_trace_sample.hpp>
+#include <ethercat_hardware/msg/motor_trace.hpp>
+#include <ethercat_hardware/msg/actuator_info.hpp>
+#include <ethercat_hardware/msg/board_info.hpp>
 
-#include <diagnostic_updater/DiagnosticStatusWrapper.h>
+#include <diagnostic_updater/diagnostic_status_wrapper.hpp>
+#include <rclcpp/rclcpp.hpp>
 
 #include <boost/utility.hpp>
 #include <boost/thread/mutex.hpp>
@@ -21,24 +22,25 @@ class MotorModel : private boost::noncopyable
 {
 public:
   MotorModel(unsigned trace_size);
-  bool initialize(const ethercat_hardware::ActuatorInfo &actuator_info, 
-                  const ethercat_hardware::BoardInfo &board_info);
+  bool initialize(const ethercat_hardware::msg::ActuatorInfo &actuator_info, 
+                  const ethercat_hardware::msg::BoardInfo &board_info,
+                  const rclcpp::Node::SharedPtr &node);
   void flagPublish(const std::string &reason, int level, int delay);
   void checkPublish();
   void diagnostics(diagnostic_updater::DiagnosticStatusWrapper &d);
-  void sample(const ethercat_hardware::MotorTraceSample &s);
+  void sample(const ethercat_hardware::msg::MotorTraceSample &s);
   bool verify();
   void reset();
 protected:
   unsigned trace_size_;
   unsigned trace_index_; /* index of most recent element in trace vector */
   unsigned published_traces_;
-  ethercat_hardware::ActuatorInfo actuator_info_;
-  ethercat_hardware::BoardInfo board_info_;
+  ethercat_hardware::msg::ActuatorInfo actuator_info_;
+  ethercat_hardware::msg::BoardInfo board_info_;
   double backemf_constant_;
   bool previous_pwm_saturated_;
-  std::vector<ethercat_hardware::MotorTraceSample> trace_buffer_;
-  realtime_tools::RealtimePublisher<ethercat_hardware::MotorTrace> *publisher_;
+  std::vector<ethercat_hardware::msg::MotorTraceSample> trace_buffer_;
+  realtime_tools::RealtimePublisher<ethercat_hardware::msg::MotorTrace> *publisher_;
   double current_error_limit_;
   int publish_delay_;
   int publish_level_;

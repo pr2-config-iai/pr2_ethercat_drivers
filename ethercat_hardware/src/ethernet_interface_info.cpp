@@ -1,4 +1,6 @@
 #include "ethercat_hardware/ethernet_interface_info.h"
+#include <unistd.h>
+#include "ethercat_hardware/ros_helpers.h"
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
 #include <net/if.h>
@@ -51,7 +53,7 @@ void EthernetInterfaceInfo::initialize(const std::string &interface)
   sock_ = socket(AF_INET, SOCK_DGRAM, 0);
   if (sock_ < 0) 
   {
-    ROS_WARN("Cannot get control socket for ioctls : %s", strerror(errno));
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Cannot get control socket for ioctls : %s", strerror(errno));
     return;
   }
 
@@ -69,13 +71,13 @@ void EthernetInterfaceInfo::initialize(const std::string &interface)
   int result = ioctl(sock_, SIOCETHTOOL, &ifr);
   if (result < 0) 
   {
-    ROS_WARN("Cannot get driver information for %s : %s", interface_.c_str(), strerror(errno));
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Cannot get driver information for %s : %s", interface_.c_str(), strerror(errno));
     return;
   }
   n_stats_ = drvinfo.n_stats;
   if (n_stats_ < 1)
   {
-    ROS_WARN("No NIC statistics available for %s", interface_.c_str());
+    RCLCPP_WARN(::ethercat_hardware::logger(), "No NIC statistics available for %s", interface_.c_str());
     return;
   }
 
@@ -91,7 +93,7 @@ void EthernetInterfaceInfo::initialize(const std::string &interface)
   result = ioctl(sock_, SIOCETHTOOL, &ifr);
   if (result < 0) 
   {
-    ROS_WARN("Cannot get statistics strings for %s : %s", interface_.c_str(), strerror(errno));
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Cannot get statistics strings for %s : %s", interface_.c_str(), strerror(errno));
     delete[] strings_buf;
     return;
   }
@@ -103,7 +105,7 @@ void EthernetInterfaceInfo::initialize(const std::string &interface)
       char s[ETH_GSTRING_LEN+1];
       strncpy(s, (const char*) &strings->data[i * ETH_GSTRING_LEN], ETH_GSTRING_LEN);
       s[ETH_GSTRING_LEN] = '\0';
-      ROS_WARN("Stat %i : %s", i, s);
+      RCLCPP_WARN(::ethercat_hardware::logger(), "Stat %i : %s", i, s);
     }
     const char *stat_name = (const char*) &strings->data[i * ETH_GSTRING_LEN];
     if (strncmp("rx_errors", stat_name, ETH_GSTRING_LEN) == 0)
@@ -133,7 +135,7 @@ void EthernetInterfaceInfo::initialize(const std::string &interface)
   if (!getEthtoolStats(orig_stats_))
   {
     // Don't run if we can't get initial statitics
-    ROS_WARN("Error collecting intial ethernet interface statistics");
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Error collecting intial ethernet interface statistics");
     delete[] ethtool_stats_buf_;
     ethtool_stats_buf_ = NULL;
   }
@@ -147,7 +149,7 @@ bool EthernetInterfaceInfo::getInterfaceState(InterfaceState &state)
   strncpy(ifr.ifr_name, interface_.c_str(), sizeof(ifr.ifr_name));
 
   if (ioctl(sock_, SIOCGIFFLAGS, &ifr) < 0) {
-    ROS_WARN("Cannot get interface flags for %s: %s", interface_.c_str(), strerror(errno));
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Cannot get interface flags for %s: %s", interface_.c_str(), strerror(errno));
     return false;
   }
 
@@ -172,7 +174,7 @@ bool EthernetInterfaceInfo::getEthtoolStats(EthtoolStats &s)
   ifr.ifr_data = (caddr_t) stats;
   if (ioctl(sock_, SIOCETHTOOL, &ifr) < 0) 
   {
-    ROS_WARN("Cannot get NIC stats information for %s : %s", interface_.c_str(), strerror(errno));
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Cannot get NIC stats information for %s : %s", interface_.c_str(), strerror(errno));
     return false;
   }
   

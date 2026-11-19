@@ -2,6 +2,35 @@
 Changelog for package ethercat_hardware
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+2.0.0 (unreleased)
+------------------
+* Port to ROS 2 (Jazzy). The realtime code paths are unchanged; only the ROS interface moved.
+* ``EthercatHardware`` takes an ``rclcpp::Node::SharedPtr``; devices get it via
+  ``EthercatDevice::setNode()`` before ``construct()``.
+* Parameters (on the node, e.g. ``realtime_loop``): ROS 1 hierarchical names become dotted names.
+
+  * ``realtime_socket_timeout``, ``max_pd_retries``: unchanged.
+  * ``~<actuator>/enable_pressure_sensor`` -> ``<actuator>.enable_pressure_sensor`` (same for
+    ``enable_ft_sensor``, ``disable_motor_model_checking``).
+  * ``~motor_heating_model/<x>`` -> ``motor_heating_model.<x>``.
+  * ``~<actuator>/ft_params`` -> ``<actuator>.ft_params.offsets`` (6), ``.gains`` (6) and
+    ``.calibration_coeff``, now the 6x6 matrix flattened row-major to 36 doubles (ROS 2
+    parameters cannot hold nested lists).
+  * ``non_ethercat_devices`` struct -> list of names plus ``non_ethercat_devices.<name>.type``.
+
+* Latched topics (``motors_halted``, ``motor_trace/*``, ``motor_temperature/*``) use
+  transient_local QoS.
+* Soft processor services: only the first WG06 registers them, as in ROS 1 (where later
+  ``advertiseService`` calls failed); ROS 2 would otherwise create competing servers.
+* New ``read_only_check`` tool: initializes the chain and reads encoders with motors halted.
+  Takes the same ``/var/tmp/run/EtherCAT_<if>.pid`` lock as ROS 1 ``pr2_ethercat`` (the host's
+  copy inside distrobox). Needs ``setcap cap_net_raw,cap_ipc_lock,cap_sys_nice+ep`` after
+  every build; it carries an absolute RPATH because such binaries ignore LD_LIBRARY_PATH.
+* Fixes found while porting: ``num_ethercat_devices_`` was shadowed by a local in ``init()``;
+  device destructors dereferenced a null slave handler when ``construct()`` never ran;
+  tinyxml was never linked (only worked through catkin's transitive libraries).
+* Not ported yet: ``motorconf``.
+
 1.9.0 (2021-03-03)
 ------------------
 

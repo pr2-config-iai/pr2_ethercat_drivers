@@ -33,6 +33,7 @@
  *********************************************************************/
 
 #include "ethercat_hardware/wg_mailbox.h"
+#include "ethercat_hardware/ros_helpers.h"
 #include "ethercat_hardware/wg_util.h"
 #include "dll/ethercat_device_addressed_telegram.h"
 #include "ethercat_hardware/ethercat_device.h"
@@ -229,7 +230,7 @@ WGMailbox::WGMailbox() : sh_(NULL)
   int error;
   if ((error = pthread_mutex_init(&mailbox_lock_, NULL)) != 0)
   {
-    ROS_ERROR("WG0X : init mailbox mutex :%s", strerror(error));
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "WG0X : init mailbox mutex :%s", strerror(error));
   }
 }
 

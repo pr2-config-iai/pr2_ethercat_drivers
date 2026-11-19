@@ -35,7 +35,7 @@
 #include <ethercat_hardware/wg014.h>
 #include <iomanip>
 
-#include <ros/console.h>
+#include "ethercat_hardware/ros_helpers.h"
 
 PLUGINLIB_EXPORT_CLASS(WG014, EthercatDevice);
 
@@ -53,13 +53,16 @@ void WG014::construct(EtherCAT_SlaveHandler *sh, int &start_address)
 
 WG014::~WG014()
 {
-  delete sh_->get_fmmu_config();
-  delete sh_->get_pd_config();
+  if (sh_)  // only set by construct()
+  {
+    delete sh_->get_fmmu_config();
+    delete sh_->get_pd_config();
+  }
 }
 
 int WG014::initialize(pr2_hardware_interface::HardwareInterface *, bool)
 {
-  ROS_DEBUG("Device #%02d: WG014 (%#08x)", sh_->get_ring_position(), sh_->get_product_code());
+  RCLCPP_DEBUG(::ethercat_hardware::logger(), "Device #%02d: WG014 (%#08x)", sh_->get_ring_position(), sh_->get_product_code());
   return 0;
 }
 

@@ -33,6 +33,8 @@
  *********************************************************************/
 
 #include <iomanip>
+#include <unistd.h>
+#include "ethercat_hardware/ros_helpers.h"
 
 #include <algorithm>
 
@@ -130,13 +132,13 @@ void WG06::construct(EtherCAT_SlaveHandler *sh, int &start_address)
   }
   else 
   {
-    ROS_ERROR("Unsupported WG06 FW major version %d", fw_major_);
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Unsupported WG06 FW major version %d", fw_major_);
   }
   status_size_ += pressure_size_;
 
 
   EtherCAT_FMMU_Config *fmmu = new EtherCAT_FMMU_Config(3);
-  //ROS_DEBUG("device %d, command  0x%X = 0x10000+%d", (int)sh->get_ring_position(), start_address, start_address-0x10000);
+  //RCLCPP_DEBUG(::ethercat_hardware::logger(), "device %d, command  0x%X = 0x10000+%d", (int)sh->get_ring_position(), start_address, start_address-0x10000);
   (*fmmu)[0] = EC_FMMU(start_address, // Logical start address
                        command_size_,// Logical length
                        0x00, // Logical StartBit
@@ -149,7 +151,7 @@ void WG06::construct(EtherCAT_SlaveHandler *sh, int &start_address)
 
   start_address += command_size_;
 
-  //ROS_DEBUG("device %d, status   0x%X = 0x10000+%d", (int)sh->get_ring_position(), start_address, start_address-0x10000);
+  //RCLCPP_DEBUG(::ethercat_hardware::logger(), "device %d, status   0x%X = 0x10000+%d", (int)sh->get_ring_position(), start_address, start_address-0x10000);
   (*fmmu)[1] = EC_FMMU(start_address, // Logical start address
                        base_status_size, // Logical length
                        0x00, // Logical StartBit
@@ -216,26 +218,25 @@ int WG06::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_u
     double board_resistance = 5.0;
     if (!WG0X::initializeMotorModel(hw, "WG006", max_pwm_ratio, board_resistance, poor_measured_motor_voltage)) 
     {
-      ROS_FATAL("Initializing motor trace failed");
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "Initializing motor trace failed");
       sleep(1); // wait for ros to flush rosconsole output
       return -1;
     }
 
     // For some versions of software pressure and force/torque sensors can be
     // selectively enabled / disabled    
-    ros::NodeHandle nh(string("~/") + actuator_.name_);
-    if (!nh.getParam("enable_pressure_sensor", enable_pressure_sensor_))
+    if (!ethercat_hardware::getParam(node_, actuator_.name_ + ".enable_pressure_sensor", enable_pressure_sensor_))
     {
       enable_pressure_sensor_ = true; //default to to true
     }
-    if (!nh.getParam("enable_ft_sensor", enable_ft_sensor_))
+    if (!ethercat_hardware::getParam(node_, actuator_.name_ + ".enable_ft_sensor", enable_ft_sensor_))
     {
       enable_ft_sensor_ = false; //default to to false
     }
 
     if (enable_ft_sensor_ && (fw_major_ < 2))
     {
-      ROS_WARN("Gripper firmware version %d does not support enabling force/torque sensor", fw_major_);
+      RCLCPP_WARN(::ethercat_hardware::logger(), "Gripper firmware version %d does not support enabling force/torque sensor", fw_major_);
       enable_ft_sensor_ = false;
     }
 
@@ -251,7 +252,7 @@ int WG06::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_u
       EthercatDirectCom com(EtherCAT_DataLinkLayer::instance());
       if (writeMailbox(&com, PRESSURE_FT_ENABLE_ADDR, &pressure_ft_enable, 1) != 0)
       {
-        ROS_FATAL("Could not enable/disable pressure and force/torque sensors");
+        RCLCPP_FATAL(::ethercat_hardware::logger(), "Could not enable/disable pressure and force/torque sensors");
         return -1;
       }
     }
@@ -303,7 +304,8 @@ bool WG06::initializePressure(pr2_hardware_interface::HardwareInterface *hw)
   string topic = "pressure";
   if (!actuator_.name_.empty())
     topic = topic + "/" + string(actuator_.name_);
-  pressure_publisher_ = new realtime_tools::RealtimePublisher<pr2_msgs::PressureState>(ros::NodeHandle(), topic, 1);
+  pressure_publisher_ = new realtime_tools::RealtimePublisher<pr2_msgs::msg::PressureState>(
+    node_->create_publisher<pr2_msgs::msg::PressureState>(topic, 1));
   
   // Register pressure sensor with pr2_hardware_interface::HardwareInterface
   for (int i = 0; i < 2; ++i) 
@@ -312,7 +314,7 @@ bool WG06::initializePressure(pr2_hardware_interface::HardwareInterface *hw)
     pressure_sensors_[i].name_ = string(actuator_info_.name_) + string(i ? "r_finger_tip" : "l_finger_tip");
     if (hw && !hw->addPressureSensor(&pressure_sensors_[i]))
     {
-      ROS_FATAL("A pressure sensor of the name '%s' already exists.  Device #%02d has a duplicate name", pressure_sensors_[i].name_.c_str(), sh_->get_ring_position());
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "A pressure sensor of the name '%s' already exists.  Device #%02d has a duplicate name", pressure_sensors_[i].name_.c_str(), sh_->get_ring_position());
       return false;
     }
   }
@@ -328,13 +330,14 @@ bool WG06::initializeAccel(pr2_hardware_interface::HardwareInterface *hw)
   {
     topic = topic + "/" + string(actuator_.name_);
   }
-  accel_publisher_ = new realtime_tools::RealtimePublisher<pr2_msgs::AccelerometerState>(ros::NodeHandle(), topic, 1);
+  accel_publisher_ = new realtime_tools::RealtimePublisher<pr2_msgs::msg::AccelerometerState>(
+    node_->create_publisher<pr2_msgs::msg::AccelerometerState>(topic, 1));
   
   // Register accelerometer with pr2_hardware_interface::HardwareInterface
   accelerometer_.name_ = actuator_info_.name_;
   if (hw && !hw->addAccelerometer(&accelerometer_))
   {
-    ROS_FATAL("An accelerometer of the name '%s' already exists.  Device #%02d has a duplicate name", accelerometer_.name_.c_str(), sh_->get_ring_position());
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "An accelerometer of the name '%s' already exists.  Device #%02d has a duplicate name", accelerometer_.name_.c_str(), sh_->get_ring_position());
     return false;
   }
   return true;
@@ -346,7 +349,7 @@ bool WG06::initializeFT(pr2_hardware_interface::HardwareInterface *hw)
   ft_raw_analog_in_.name_ = actuator_.name_ + "_ft_raw";
   if (hw && !hw->addAnalogIn(&ft_raw_analog_in_))
   {
-    ROS_FATAL("An analog in of the name '%s' already exists.  Device #%02d has a duplicate name",
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "An analog in of the name '%s' already exists.  Device #%02d has a duplicate name",
               ft_raw_analog_in_.name_.c_str(), sh_->get_ring_position());
     return false;
   }
@@ -361,10 +364,11 @@ bool WG06::initializeFT(pr2_hardware_interface::HardwareInterface *hw)
   std::string topic = "raw_ft";
   if (!actuator_.name_.empty())
     topic = topic + "/" + string(actuator_.name_);
-  raw_ft_publisher_ = new realtime_tools::RealtimePublisher<ethercat_hardware::RawFTData>(ros::NodeHandle(), topic, 1);
+  raw_ft_publisher_ = new realtime_tools::RealtimePublisher<ethercat_hardware::msg::RawFTData>(
+    node_->create_publisher<ethercat_hardware::msg::RawFTData>(topic, 1));
   if (raw_ft_publisher_ == NULL)
   {
-    ROS_FATAL("Could not allocate raw_ft publisher");
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Could not allocate raw_ft publisher");
     return false;
   }
   // Allocate space for raw f/t data values
@@ -376,9 +380,8 @@ bool WG06::initializeFT(pr2_hardware_interface::HardwareInterface *hw)
   if (!actuator_.name_.empty())
   {
     ft_analog_in_.state_.state_.resize(6);
-    ros::NodeHandle nh("~" + string(actuator_.name_));
     FTParamsInternal ft_params;
-    if ( ft_params.getRosParams(nh) )
+    if ( ft_params.getRosParams(node_, actuator_.name_ + ".ft_params.") )
     {
       ft_params_ = ft_params;
       ft_params_.print();
@@ -386,10 +389,11 @@ bool WG06::initializeFT(pr2_hardware_interface::HardwareInterface *hw)
       topic = "ft";
       if (!actuator_.name_.empty())
         topic = topic + "/" + string(actuator_.name_);
-      ft_publisher_ = new realtime_tools::RealtimePublisher<geometry_msgs::WrenchStamped>(ros::NodeHandle(), topic, 1);
+      ft_publisher_ = new realtime_tools::RealtimePublisher<geometry_msgs::msg::WrenchStamped>(
+        node_->create_publisher<geometry_msgs::msg::WrenchStamped>(topic, 1));
       if (ft_publisher_ == NULL)
       {
-        ROS_FATAL("Could not allocate ft publisher");
+        RCLCPP_FATAL(::ethercat_hardware::logger(), "Could not allocate ft publisher");
         return false;
       }
 
@@ -397,7 +401,7 @@ bool WG06::initializeFT(pr2_hardware_interface::HardwareInterface *hw)
       force_torque_.name_ = actuator_.name_;
       if (hw && !hw->addForceTorque(&force_torque_))
       {
-        ROS_FATAL("A force/torque sensor of the name '%s' already exists.  Device #%02d has a duplicate name", force_torque_.name_.c_str(), sh_->get_ring_position());
+        RCLCPP_FATAL(::ethercat_hardware::logger(), "A force/torque sensor of the name '%s' already exists.  Device #%02d has a duplicate name", force_torque_.name_.c_str(), sh_->get_ring_position());
         return false;
       }
     }
@@ -418,7 +422,7 @@ bool WG06::initializeSoftProcessor()
   soft_processor_.add(&mailbox_, actuator_.name_, "accel", 0xB000, 0x24A);
 
   // Start services
-  if (!soft_processor_.initialize(com))
+  if (!soft_processor_.initialize(com, node_))
   {
     return false;
   }
@@ -540,7 +544,7 @@ bool WG06::unpackPressure(unsigned char *pressure_buf)
            << unsigned(pressure_buf[ii]) << " ";
         if ((ii%8) == 7) ss << std::endl;
       }
-      ROS_ERROR_STREAM(ss.str());
+      RCLCPP_ERROR_STREAM(::ethercat_hardware::logger(), ss.str());
       std::cerr << ss.str() << std::endl;
     }
     pressure_checksum_error_ = true;
@@ -562,7 +566,7 @@ bool WG06::unpackPressure(unsigned char *pressure_buf)
     {
       if (pressure_publisher_ && pressure_publisher_->trylock())
       {
-        pressure_publisher_->msg_.header.stamp = ros::Time::now();
+        pressure_publisher_->msg_.header.stamp = ::ethercat_hardware::now();
         pressure_publisher_->msg_.l_finger_tip.resize(22);
         pressure_publisher_->msg_.r_finger_tip.resize(22);
         for (int i = 0; i < 22; ++i ) {
@@ -608,7 +612,7 @@ bool WG06::unpackAccel(WG06StatusWithAccel *status, WG06StatusWithAccel *last_st
   if (accel_publisher_->trylock())
   {
     accel_publisher_->msg_.header.frame_id = accelerometer_.state_.frame_id_;
-    accel_publisher_->msg_.header.stamp = ros::Time::now();
+    accel_publisher_->msg_.header.stamp = ::ethercat_hardware::now();
     accel_publisher_->msg_.samples.resize(count);
     for (int i = 0; i < count; ++i)
     {
@@ -643,7 +647,7 @@ bool WG06::unpackAccel(WG06StatusWithAccel *status, WG06StatusWithAccel *last_st
  * Note on hardware circuit and Vref and excitation voltage should have save value.  
  * Thus, with Force/Torque calculation they cancel out. 
  */
-void WG06::convertFTDataSampleToWrench(const FTDataSample &sample, geometry_msgs::Wrench &wrench)
+void WG06::convertFTDataSampleToWrench(const FTDataSample &sample, geometry_msgs::msg::Wrench &wrench)
 {
   // Apply gains / offset to F/T raw analog inputs
   // Also, make sure values are within bounds.  
@@ -708,7 +712,7 @@ bool WG06::unpackFT(WG06StatusWithAccelAndFT *status, WG06StatusWithAccelAndFT *
 {  
   pr2_hardware_interface::ForceTorqueState &ft_state(force_torque_.state_);
 
-  ros::Time current_time(ros::Time::now());
+  rclcpp::Time current_time(::ethercat_hardware::now());
 
   // Fill in raw analog output with most recent data sample, (might become deprecated?)
   {
@@ -751,14 +755,14 @@ bool WG06::unpackFT(WG06StatusWithAccelAndFT *status, WG06StatusWithAccelAndFT *
     // this is the reverse of the order data is stored in hardware_interface::ForceTorque buffer.
     unsigned status_sample_index = usable_samples-sample_index-1;
     const FTDataSample &sample(status->ft_samples_[status_sample_index]); 
-    geometry_msgs::Wrench &wrench(ft_state.samples_[sample_index]);
+    geometry_msgs::msg::Wrench &wrench(ft_state.samples_[sample_index]);
     convertFTDataSampleToWrench(sample, wrench);
   }
 
   // Put newest sample into analog vector for controllers (deprecated)
   if (usable_samples > 0)
   {
-    const geometry_msgs::Wrench &wrench(ft_state.samples_[usable_samples-1]);
+    const geometry_msgs::msg::Wrench &wrench(ft_state.samples_[usable_samples-1]);
     ft_analog_in_.state_.state_[0] = wrench.force.x;
     ft_analog_in_.state_.state_[1] = wrench.force.y;
     ft_analog_in_.state_.state_[2] = wrench.force.z;
@@ -777,7 +781,7 @@ bool WG06::unpackFT(WG06StatusWithAccelAndFT *status, WG06StatusWithAccelAndFT *
     {
       // put data into message so oldest data is first element
       const FTDataSample &sample(status->ft_samples_[sample_num]);
-      ethercat_hardware::RawFTDataSample &msg_sample(raw_ft_publisher_->msg_.samples[usable_samples-sample_num-1]);
+      ethercat_hardware::msg::RawFTDataSample &msg_sample(raw_ft_publisher_->msg_.samples[usable_samples-sample_num-1]);
       msg_sample.sample_count = ft_sample_count_ - sample_num;
       msg_sample.data.resize(NUM_FT_CHANNELS);
       for (unsigned ch_num=0; ch_num<NUM_FT_CHANNELS; ++ch_num)
@@ -805,7 +809,7 @@ bool WG06::unpackFT(WG06StatusWithAccelAndFT *status, WG06StatusWithAccelAndFT *
 }
 
 
-void WG06::multiDiagnostics(vector<diagnostic_msgs::DiagnosticStatus> &vec, unsigned char *buffer)
+void WG06::multiDiagnostics(vector<diagnostic_msgs::msg::DiagnosticStatus> &vec, unsigned char *buffer)
 {
   diagnostic_updater::DiagnosticStatusWrapper &d(diagnostic_status_);
   diagnosticsWG06(d, buffer);  
@@ -823,7 +827,7 @@ void WG06::multiDiagnostics(vector<diagnostic_msgs::DiagnosticStatus> &vec, unsi
     vec.push_back(d);
   }
 
-  last_publish_time_ = ros::Time::now();
+  last_publish_time_ = ::ethercat_hardware::now();
   first_publish_ = false;
 }
 
@@ -861,10 +865,10 @@ void WG06::diagnosticsAccel(diagnostic_updater::DiagnosticStatusWrapper &d, unsi
   // Board revB=1 and revA=0 does not have accelerometer
   bool has_accelerometer = (board_major_ >= 2);
   double sample_frequency = 0.0;
-  ros::Time current_time(ros::Time::now());
+  rclcpp::Time current_time(::ethercat_hardware::now());
   if (!first_publish_)
   {
-    sample_frequency = double(accelerometer_samples_) / (current_time - last_publish_time_).toSec();
+    sample_frequency = double(accelerometer_samples_) / (current_time - last_publish_time_).seconds();
     {
       if (((sample_frequency < 2000) || (sample_frequency > 4000)) && has_accelerometer)
       {
@@ -1011,11 +1015,11 @@ void WG06::diagnosticsFT(diagnostic_updater::DiagnosticStatusWrapper &d, WG06Sta
   d.summary(d.OK, "OK");
   d.clear();
 
-  ros::Time current_time(ros::Time::now());
+  rclcpp::Time current_time(::ethercat_hardware::now());
   double sample_frequency = 0.0;
   if (!first_publish_)
   {
-    sample_frequency = double(ft_sample_count_ - diag_last_ft_sample_count_) / (current_time - last_publish_time_).toSec();
+    sample_frequency = double(ft_sample_count_ - diag_last_ft_sample_count_) / (current_time - last_publish_time_).seconds();
   }
   diag_last_ft_sample_count_ = ft_sample_count_;
 
@@ -1095,15 +1099,15 @@ void FTParamsInternal::print() const
 {
   for (int i=0; i<6; ++i)
   {
-    ROS_INFO("offset[%d] = %f", i, offset(i));
+    RCLCPP_INFO(::ethercat_hardware::logger(), "offset[%d] = %f", i, offset(i));
   }
   for (int i=0; i<6; ++i)
   {
-    ROS_INFO("gain[%d] = %f", i, gain(i));
+    RCLCPP_INFO(::ethercat_hardware::logger(), "gain[%d] = %f", i, gain(i));
   }
   for (int i=0; i<6; ++i)
   {
-    ROS_INFO("coeff[%d] = [%f,%f,%f,%f,%f,%f]", i, 
+    RCLCPP_INFO(::ethercat_hardware::logger(), "coeff[%d] = [%f,%f,%f,%f,%f,%f]", i, 
              calibration_coeff(i,0), calibration_coeff(i,1), 
              calibration_coeff(i,2), calibration_coeff(i,3), 
              calibration_coeff(i,4), calibration_coeff(i,5)
@@ -1112,112 +1116,66 @@ void FTParamsInternal::print() const
 }
 
 
-bool FTParamsInternal::getDoubleArray(XmlRpc::XmlRpcValue params, const char* name, double *results, unsigned len)
+bool FTParamsInternal::getDoubleArray(const rclcpp::Node::SharedPtr &node, const std::string &name,
+                                      double *results, unsigned len)
 {
-  if(!params.hasMember(name))
+  std::vector<double> values;
+  if (!ethercat_hardware::getParam(node, name, values))
   {
-    ROS_ERROR("Expected ft_param to have '%s' element", name);
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Expected FT parameter '%s' (list of %u doubles)", name.c_str(), len);
     return false;
   }
-
-  XmlRpc::XmlRpcValue values = params[name];
-  if (values.getType() != XmlRpc::XmlRpcValue::TypeArray)
+  if (values.size() != len)
   {
-    ROS_ERROR("Expected FT param '%s' to be list type", name);
-    return false;
-  }
-  if (values.size() != int(len))
-  {
-    ROS_ERROR("Expected FT param '%s' to have %d elements", name, len);
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Expected FT param '%s' to have %u elements, it has %zu",
+                 name.c_str(), len, values.size());
     return false;
   }
   for (unsigned i=0; i<len; ++i)
   {
-    if (values[i].getType() != XmlRpc::XmlRpcValue::TypeDouble)
-    {
-      ROS_ERROR("Expected FT param %s[%d] to be floating point type", name, i);
-      return false;
-    } else {
-      results[i] = static_cast<double>(values[i]);
-    }
+    results[i] = values[i];
   }
-
   return true;
 }
 
 
 /*!
- * \brief Grabs ft rosparams from a given node hande namespace
+ * \brief Grabs force/torque parameters
  *
- * The force/torque parameters consist of 
- *  6x ADC offset values
- *  6x6 gain matrix as 6-elment array of 6-element arrays of doubles
+ * The force/torque parameters consist of (ROS 2 names, \p prefix e.g. "l_gripper_motor.ft_params."):
+ *  <prefix>offsets            6x ADC offset values
+ *  <prefix>gains              6x gain values
+ *  <prefix>calibration_coeff  6x6 gain matrix, flattened row-major to 36 doubles.
+ *                             (ROS 1 used a list of six 6-element lists, which ROS 2
+ *                             parameters cannot represent.)
  *
  * \return True, if there are no problems.
  */
-bool FTParamsInternal::getRosParams(ros::NodeHandle nh)
+bool FTParamsInternal::getRosParams(const rclcpp::Node::SharedPtr &node, const std::string &prefix)
 {
-  if (!nh.hasParam("ft_params"))
+  std::vector<double> probe;
+  if (!ethercat_hardware::getParam(node, prefix + "calibration_coeff", probe))
   {
-    ROS_WARN("'ft_params' not available for force/torque sensor in namespace '%s'",
-             nh.getNamespace().c_str());
+    RCLCPP_WARN(::ethercat_hardware::logger(), "'%scalibration_coeff' not available for force/torque sensor",
+                prefix.c_str());
     return false;
   }
 
-  XmlRpc::XmlRpcValue params;
-  nh.getParam("ft_params", params);
-  if (params.getType() != XmlRpc::XmlRpcValue::TypeStruct)
-  {
-    ROS_ERROR("expected ft_params to be struct type");
-    return false;
-  }
-
-  if (!getDoubleArray(params, "offsets", offsets_, 6))
+  if (!getDoubleArray(node, prefix + "offsets", offsets_, 6))
   {
     return false;
   }
 
-  if (!getDoubleArray(params, "gains", gains_, 6))
+  if (!getDoubleArray(node, prefix + "gains", gains_, 6))
   {
     return false;
   }
 
-  XmlRpc::XmlRpcValue coeff_matrix = params["calibration_coeff"];
-  if (coeff_matrix.getType() != XmlRpc::XmlRpcValue::TypeArray)
+  if (!getDoubleArray(node, prefix + "calibration_coeff", calibration_coeff_, 36))
   {
-    ROS_ERROR("Expected FT param 'calibration_coeff' to be list type");
+    RCLCPP_ERROR(::ethercat_hardware::logger(),
+                 "'%scalibration_coeff' must be the 6x6 matrix flattened row-major to 36 doubles", prefix.c_str());
     return false;
-  }
-  if (coeff_matrix.size() != 6)
-  {
-    ROS_ERROR("Expected FT param 'calibration_coeff' to have 6 elements");
-    return false;
-  }
-
-  for (int i=0; i<6; ++i)
-  {
-    XmlRpc::XmlRpcValue coeff_row = coeff_matrix[i];
-    if (coeff_row.getType() != XmlRpc::XmlRpcValue::TypeArray)
-    {
-      ROS_ERROR("Expected FT param calibration_coeff[%d] to be list type", i);
-      return false;
-    }
-    if (coeff_row.size() != 6)
-    {
-      ROS_ERROR("Expected FT param calibration_coeff[%d] to have 6 elements", i);
-      return false;
-    }
-    
-    for (int j=0; j<6; ++j)
-    {
-      if (coeff_row[j].getType() != XmlRpc::XmlRpcValue::TypeDouble)
-      {
-        ROS_ERROR("Expected FT param calibration_coeff[%d,%d] to be floating point type", i,j);
-        return false;
-      } else {
-        calibration_coeff(i,j) = static_cast<double>(coeff_row[j]);
-      }
-    }
   }
 
   return true;

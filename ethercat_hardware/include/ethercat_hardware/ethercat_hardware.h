@@ -48,23 +48,24 @@
 #include "ethercat_hardware/ethercat_device.h"
 #include "ethercat_hardware/ethercat_com.h"
 #include "ethercat_hardware/ethernet_interface_info.h"
+#include "ethercat_hardware/ros_helpers.h"
 
-#include <realtime_tools/realtime_publisher.h>
+#include <realtime_tools/realtime_publisher.hpp>
 
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/stats.hpp>
 #include <boost/accumulators/statistics/max.hpp>
 #include <boost/accumulators/statistics/mean.hpp>
 
-#include <boost/shared_ptr.hpp>
+#include <memory>
 
 #include <boost/thread/thread.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/condition_variable.hpp>
 
-#include <pluginlib/class_loader.h>
+#include <pluginlib/class_loader.hpp>
 
-#include <std_msgs/Bool.h>
+#include <std_msgs/msg/bool.hpp>
 
 #include <boost/regex.hpp>
 
@@ -115,7 +116,7 @@ class EthercatHardwareDiagnosticsPublisher
 {
 public:
 
-  EthercatHardwareDiagnosticsPublisher(ros::NodeHandle &node);
+  explicit EthercatHardwareDiagnosticsPublisher(const rclcpp::Node::SharedPtr &node);
   ~EthercatHardwareDiagnosticsPublisher();
 
   /*!
@@ -124,7 +125,7 @@ public:
    * \param number of EtherCAT slave devices
    */
   void initialize(const string &interface, unsigned int buffer_size, 
-                  const std::vector<boost::shared_ptr<EthercatDevice> > &slaves,
+                  const std::vector<std::shared_ptr<EthercatDevice> > &slaves,
                   unsigned int num_ethercat_devices_,
                   unsigned timeout, unsigned max_pd_retries);
 
@@ -170,19 +171,19 @@ private:
         const accumulator_set<double, stats<tag::max, tag::mean> > &acc,
         double max);
 
-  ros::NodeHandle node_;
+  rclcpp::Node::SharedPtr node_;
 
   boost::mutex diagnostics_mutex_; //!< mutex protects all class data and cond variable
   boost::condition_variable diagnostics_cond_;
   bool diagnostics_ready_;
   boost::thread diagnostics_thread_;
 
-  ros::Publisher publisher_;
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr publisher_;
 
   EthercatHardwareDiagnostics diagnostics_; //!< Diagnostics information use by publish function
   unsigned char *diagnostics_buffer_;
   unsigned int buffer_size_;
-  std::vector<boost::shared_ptr<EthercatDevice> > slaves_;
+  std::vector<std::shared_ptr<EthercatDevice> > slaves_;
   unsigned int num_ethercat_devices_;
   string interface_;
 
@@ -194,14 +195,14 @@ private:
   //! Count of dropped packets last diagnostics cycle
   uint64_t last_dropped_packet_count_;
   //! Time last packet was dropped 0 otherwise.  Used for warning about dropped packets. 
-  ros::Time last_dropped_packet_time_; 
+  rclcpp::Time last_dropped_packet_time_; 
   //! Number of seconds since late dropped packet to keep warning 
   static const unsigned dropped_packet_warning_hold_time_ = 10;  //keep warning up for 10 seconds
 
-  diagnostic_msgs::DiagnosticArray diagnostic_array_;
+  diagnostic_msgs::msg::DiagnosticArray diagnostic_array_;
   //! Information about Ethernet interface used for EtherCAT communication
   EthernetInterfaceInfo ethernet_interface_info_;
-  vector<diagnostic_msgs::KeyValue> values_;
+  vector<diagnostic_msgs::msg::KeyValue> values_;
   diagnostic_updater::DiagnosticStatusWrapper status_;
 };
 
@@ -212,7 +213,9 @@ public:
   /*!
    * \brief Constructor
    */
-  EthercatHardware(const std::string& name);
+  //! \param node  ROS 2 node for parameters (realtime_socket_timeout, max_pd_retries, device
+  //!               parameters such as "<actuator>.enable_ft_sensor"), topics and services.
+  explicit EthercatHardware(const rclcpp::Node::SharedPtr &node);
 
   /*!
    * \brief Destructor
@@ -262,11 +265,11 @@ private:
   static void changeState(EtherCAT_SlaveHandler *sh, EC_State new_state);
 
   void loadNonEthercatDevices();
-  boost::shared_ptr<EthercatDevice> configNonEthercatDevice(const std::string &product_id, const std::string &data);
+  std::shared_ptr<EthercatDevice> configNonEthercatDevice(const std::string &product_id, const std::string &data);
 
   void haltMotors(bool error, const char* reason);
 
-  ros::NodeHandle node_;
+  rclcpp::Node::SharedPtr node_;
 
   struct netif *ni_;
   string interface_;
@@ -274,8 +277,8 @@ private:
   EtherCAT_AL *al_;
   EtherCAT_Master *em_;
 
-  boost::shared_ptr<EthercatDevice> configSlave(EtherCAT_SlaveHandler *sh);
-  std::vector<boost::shared_ptr<EthercatDevice> > slaves_;
+  std::shared_ptr<EthercatDevice> configSlave(EtherCAT_SlaveHandler *sh);
+  std::vector<std::shared_ptr<EthercatDevice> > slaves_;
   unsigned int num_ethercat_devices_;
 
   unsigned char *this_buffer_;
@@ -293,10 +296,10 @@ private:
   static void updateAccMax(double &max, const accumulator_set<double, stats<tag::max, tag::mean> > &acc);
   EthercatHardwareDiagnostics diagnostics_;
   EthercatHardwareDiagnosticsPublisher diagnostics_publisher_;
-  ros::Time last_published_;
-  ros::Time last_reset_;
+  rclcpp::Time last_published_;
+  rclcpp::Time last_reset_;
 
-  realtime_tools::RealtimePublisher<std_msgs::Bool> motor_publisher_;
+  realtime_tools::RealtimePublisher<std_msgs::msg::Bool> motor_publisher_;
 
   EthercatOobCom *oob_com_;  
 

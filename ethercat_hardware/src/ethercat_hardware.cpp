@@ -33,6 +33,8 @@
  *********************************************************************/
 
 #include <vector>
+#include <unistd.h>
+#include "ethercat_hardware/ros_helpers.h"
 
 #include "ethercat_hardware/ethercat_hardware.h"
 
@@ -47,7 +49,7 @@
 #include <boost/bind.hpp>
 #include <boost/foreach.hpp>
 #include <boost/regex.hpp>
-#include <boost/shared_ptr.hpp>
+#include <memory>
 #include <boost/thread/thread.hpp>
 
 EthercatHardwareDiagnostics::EthercatHardwareDiagnostics() :
@@ -73,12 +75,13 @@ void EthercatHardwareDiagnostics::resetMaxTiming()
   max_publish_       = 0.0;
 }
 
-EthercatHardware::EthercatHardware(const std::string& name) :
-  hw_(0), node_(ros::NodeHandle(name)),
+EthercatHardware::EthercatHardware(const rclcpp::Node::SharedPtr &node) :
+  hw_(0), node_(node),
   ni_(0), this_buffer_(0), prev_buffer_(0), buffer_size_(0), halt_motors_(true), reset_state_(0), 
   max_pd_retries_(10),
   diagnostics_publisher_(node_), 
-  motor_publisher_(node_, "motors_halted", 1, true), 
+  // latched in ROS 1 -> transient_local
+  motor_publisher_(node_->create_publisher<std_msgs::msg::Bool>("motors_halted", rclcpp::QoS(1).transient_local())),
   device_loader_("ethercat_hardware", "EthercatDevice")
 {
   
@@ -113,10 +116,10 @@ void EthercatHardware::changeState(EtherCAT_SlaveHandler *sh, EC_State new_state
 
   if (!sh->to_state(new_state))
   {
-    ROS_FATAL("Cannot goto state %d for slave #%d, product code: %u (0x%X), serial: %u (0x%X), revision: %d (0x%X)",
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Cannot goto state %d for slave #%d, product code: %u (0x%X), serial: %u (0x%X), revision: %d (0x%X)",
               new_state, slave, product_code, product_code, serial, serial, revision, revision);
     if ((product_code==0xbaddbadd) || (serial==0xbaddbadd) || (revision==0xbaddbadd))
-      ROS_FATAL("Note: 0xBADDBADD indicates that the value was not read correctly from device.");
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "Note: 0xBADDBADD indicates that the value was not read correctly from device.");
     exit(EXIT_FAILURE);
   }
 }
@@ -127,7 +130,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   int sock = socket(PF_INET, SOCK_DGRAM, 0);
   if (sock < 0) {
     int error = errno;
-    ROS_FATAL("Couldn't open temp socket : %s", strerror(error));
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Couldn't open temp socket : %s", strerror(error));
     sleep(1);
     exit(EXIT_FAILURE);    
   }
@@ -136,7 +139,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   strncpy(ifr.ifr_name, interface, IFNAMSIZ);
   if (ioctl(sock, SIOCGIFFLAGS, &ifr) < 0) {
     int error = errno;
-    ROS_FATAL("Cannot get interface flags for %s: %s", interface, strerror(error));
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Cannot get interface flags for %s: %s", interface, strerror(error));
     sleep(1);
     exit(EXIT_FAILURE);
   }
@@ -145,12 +148,12 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   sock = -1;
 
   if (!(ifr.ifr_flags & IFF_UP)) {
-    ROS_FATAL("Interface %s is not UP. Try : ifup %s", interface, interface);
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Interface %s is not UP. Try : ifup %s", interface, interface);
     sleep(1);
     exit(EXIT_FAILURE);
   }
   if (!(ifr.ifr_flags & IFF_RUNNING)) {
-    ROS_FATAL("Interface %s is not RUNNING. Is cable plugged in and device powered?", interface);
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Interface %s is not RUNNING. Is cable plugged in and device powered?", interface);
     sleep(1);
     exit(EXIT_FAILURE);
   }
@@ -160,7 +163,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   interface_ = interface;
   if ((ni_ = init_ec(interface)) == NULL)
   {
-    ROS_FATAL("Unable to initialize interface: %s", interface);
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to initialize interface: %s", interface);
     sleep(1);
     exit(EXIT_FAILURE);
   }
@@ -171,15 +174,15 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   EtherCAT_DataLinkLayer::instance()->attach(ni_);
   if ((al_ = EtherCAT_AL::instance()) == NULL)
   {
-    ROS_FATAL("Unable to initialize Application Layer (AL): %p", al_);
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to initialize Application Layer (AL): %p", al_);
     sleep(1);
     exit(EXIT_FAILURE);
   }
 
-  int num_ethercat_devices_ = al_->get_num_slaves();
+  num_ethercat_devices_ = al_->get_num_slaves();  // ROS 2 port: was a local shadowing the member
   if (num_ethercat_devices_ == 0)
   {
-    ROS_FATAL("Unable to locate any slaves");
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to locate any slaves");
     sleep(1);
     exit(EXIT_FAILURE);
   }
@@ -187,7 +190,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   // Initialize Master
   if ((em_ = EtherCAT_Master::instance()) == NULL)
   {
-    ROS_FATAL("Unable to initialize EtherCAT_Master: %p", em_);
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to initialize EtherCAT_Master: %p", em_);
     sleep(1);
     exit(EXIT_FAILURE);
   }
@@ -203,7 +206,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
     EtherCAT_SlaveHandler *sh = em_->get_slave_handler(fsa);
     if (sh == NULL)
     {
-      ROS_FATAL("Unable to get slave handler #%d", slave);
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to get slave handler #%d", slave);
       sleep(1);
       exit(EXIT_FAILURE);
     }
@@ -216,7 +219,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
     unsigned slave = sh->get_station_address()-1;
     if ((slaves_[slave] = configSlave(sh)) == NULL)
     {      
-      ROS_FATAL("Unable to configure slave #%d", slave);
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to configure slave #%d", slave);
       sleep(1);
       exit(EXIT_FAILURE);
     }
@@ -254,7 +257,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   memset(this_buffer_, 0, 2 * buffer_size_);
   if (!txandrx_PD(buffer_size_, this_buffer_, 20))
   {
-    ROS_FATAL("No communication with devices");
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "No communication with devices");
     sleep(1);
     exit(EXIT_FAILURE);
   }
@@ -264,7 +267,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
 
   // Create pr2_hardware_interface::HardwareInterface
   hw_ = new pr2_hardware_interface::HardwareInterface();
-  hw_->current_time_ = ros::Time::now();
+  hw_->current_time_ = ::ethercat_hardware::now();
   last_published_ = hw_->current_time_;
 
   // Initialize slaves
@@ -276,13 +279,13 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
       EtherCAT_SlaveHandler *sh = slaves_[slave]->sh_;
       if (sh != NULL)
       {
-        ROS_FATAL("Unable to initialize slave #%d, product code: %d, revision: %d, serial: %d",
+        RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to initialize slave #%d, product code: %d, revision: %d, serial: %d",
                   slave, sh->get_product_code(), sh->get_revision(), sh->get_serial());
         sleep(1);
       } 
       else 
       {
-        ROS_FATAL("Unable to initialize slave #%d", slave);
+        RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to initialize slave #%d", slave);
       }
       exit(EXIT_FAILURE);
     }
@@ -295,7 +298,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
     static const int MAX_TIMEOUT = 200000;   // 100ms = 100,000us
     static const int DEFAULT_TIMEOUT = 5000; // default to timeout to 20000us = 20ms
     int timeout;
-    if (!node_.getParam("realtime_socket_timeout", timeout))
+    if (!ethercat_hardware::getParam(node_, "realtime_socket_timeout", timeout))
     {
       timeout = DEFAULT_TIMEOUT; 
     }
@@ -303,11 +306,11 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
     {
       int old_timeout = timeout; 
       timeout = std::max(1, std::min(MAX_TIMEOUT, timeout));
-      ROS_WARN("Invalid timeout (%d) for socket, using %d", old_timeout, timeout);
+      RCLCPP_WARN(::ethercat_hardware::logger(), "Invalid timeout (%d) for socket, using %d", old_timeout, timeout);
     }
     if (set_socket_timeout(ni_, timeout))
     {
-      ROS_FATAL("Error setting socket timeout to %d", timeout);      
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "Error setting socket timeout to %d", timeout);      
       sleep(1);
       exit(EXIT_FAILURE);
     }
@@ -324,17 +327,17 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
     // If number of retries is not specified, use a formula that allows 100ms of dropped packets
     int max_pd_retries = MAX_TIMEOUT / timeout;  // timeout is in nanoseconds : 20msec = 20000usec 
     static const int MAX_RETRIES=50, MIN_RETRIES=1;
-    node_.getParam("max_pd_retries", max_pd_retries);
+    ethercat_hardware::getParam(node_, "max_pd_retries", max_pd_retries);
     // Make sure motor halt due to dropped packet takes less than 1/10 of a second
     if ((max_pd_retries * timeout) > (MAX_TIMEOUT))
     {
       max_pd_retries = MAX_TIMEOUT / timeout;
-      ROS_WARN("Max PD retries is too large for given timeout.  Limiting value to %d", max_pd_retries);
+      RCLCPP_WARN(::ethercat_hardware::logger(), "Max PD retries is too large for given timeout.  Limiting value to %d", max_pd_retries);
     }
     if ((max_pd_retries < MIN_RETRIES) || (max_pd_retries > MAX_RETRIES))
     {
       max_pd_retries = std::max(MIN_RETRIES,std::min(MAX_RETRIES,max_pd_retries));
-      ROS_WARN("Limiting max PD retries to %d", max_pd_retries);
+      RCLCPP_WARN(::ethercat_hardware::logger(), "Limiting max PD retries to %d", max_pd_retries);
     }
     max_pd_retries = std::max(MIN_RETRIES,std::min(MAX_RETRIES,max_pd_retries));
     max_pd_retries_ = max_pd_retries;
@@ -344,10 +347,10 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
 }
 
 
-EthercatHardwareDiagnosticsPublisher::EthercatHardwareDiagnosticsPublisher(ros::NodeHandle &node) :
+EthercatHardwareDiagnosticsPublisher::EthercatHardwareDiagnosticsPublisher(const rclcpp::Node::SharedPtr &node) :
   node_(node),
   diagnostics_ready_(false),
-  publisher_(node_.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 1)),
+  publisher_(node_->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 1)),
   diagnostics_buffer_(NULL),
   last_dropped_packet_count_(0),
   last_dropped_packet_time_(0)
@@ -360,7 +363,7 @@ EthercatHardwareDiagnosticsPublisher::~EthercatHardwareDiagnosticsPublisher()
 }
 
 void EthercatHardwareDiagnosticsPublisher::initialize(const string &interface, unsigned int buffer_size, 
-                                                      const std::vector<boost::shared_ptr<EthercatDevice> > &slaves, 
+                                                      const std::vector<std::shared_ptr<EthercatDevice> > &slaves, 
                                                       unsigned int num_ethercat_devices, 
                                                       unsigned timeout, unsigned max_pd_retries)
 {
@@ -403,7 +406,7 @@ void EthercatHardwareDiagnosticsPublisher::stop()
 {
   diagnostics_thread_.interrupt();
   diagnostics_thread_.join();
-  publisher_.shutdown();
+  publisher_.reset();
 }
 
 void EthercatHardwareDiagnosticsPublisher::diagnosticsThreadFunc()
@@ -435,7 +438,7 @@ void EthercatHardwareDiagnosticsPublisher::timingInformation(
 
 void EthercatHardwareDiagnosticsPublisher::publishDiagnostics()
 {  
-  ros::Time now(ros::Time::now());
+  rclcpp::Time now(::ethercat_hardware::now());
 
   // Publish status of EtherCAT master
   status_.clearSummary();
@@ -527,7 +530,7 @@ void EthercatHardwareDiagnosticsPublisher::publishDiagnostics()
   }
 
   // Create error message if packet has been dropped recently
-  if ((last_dropped_packet_count_ > 0) && ((now - last_dropped_packet_time_).toSec() < dropped_packet_warning_hold_time_))
+  if ((last_dropped_packet_count_ > 0) && ((now - last_dropped_packet_time_).seconds() < dropped_packet_warning_hold_time_))
   {
     status_.mergeSummaryf(status_.WARN, "Dropped packets in last %d seconds", dropped_packet_warning_hold_time_);
   }
@@ -544,14 +547,14 @@ void EthercatHardwareDiagnosticsPublisher::publishDiagnostics()
   }
 
   // Publish status of each EtherCAT device
-  diagnostic_array_.header.stamp = ros::Time::now();
-  publisher_.publish(diagnostic_array_);
+  diagnostic_array_.header.stamp = ::ethercat_hardware::now();
+  publisher_->publish(diagnostic_array_);
 }
 
 void EthercatHardware::update(bool reset, bool halt)
 {
   // Update current time
-  ros::Time update_start_time(ros::Time::now());
+  rclcpp::Time update_start_time(::ethercat_hardware::now());
 
   unsigned char *this_buffer, *prev_buffer;
 
@@ -594,14 +597,14 @@ void EthercatHardware::update(bool reset, bool halt)
   }
 
   // Transmit process data
-  ros::Time txandrx_start_time(ros::Time::now()); // Also end time for pack_command_stage
-  diagnostics_.pack_command_acc_((txandrx_start_time-update_start_time).toSec());
+  rclcpp::Time txandrx_start_time(::ethercat_hardware::now()); // Also end time for pack_command_stage
+  diagnostics_.pack_command_acc_((txandrx_start_time-update_start_time).seconds());
 
   // Send/receive device proccess data
   bool success = txandrx_PD(buffer_size_, this_buffer_, max_pd_retries_);
 
-  ros::Time txandrx_end_time(ros::Time::now());  // Also begining of unpack_state 
-  diagnostics_.txandrx_acc_((txandrx_end_time - txandrx_start_time).toSec());
+  rclcpp::Time txandrx_end_time(::ethercat_hardware::now());  // Also begining of unpack_state 
+  diagnostics_.txandrx_acc_((txandrx_end_time - txandrx_start_time).seconds());
 
   hw_->current_time_ = txandrx_end_time;
 
@@ -634,14 +637,14 @@ void EthercatHardware::update(bool reset, bool halt)
     prev_buffer_ = tmp;
   }
 
-  ros::Time unpack_end_time;
+  rclcpp::Time unpack_end_time;
   if (diagnostics_.collect_extra_timing_)
   {
-    unpack_end_time = ros::Time::now();  // also start of publish time                            
-    diagnostics_.unpack_state_acc_((unpack_end_time - txandrx_end_time).toSec());
+    unpack_end_time = ::ethercat_hardware::now();  // also start of publish time                            
+    diagnostics_.unpack_state_acc_((unpack_end_time - txandrx_end_time).seconds());
   }
 
-  if ((update_start_time - last_published_) > ros::Duration(1.0))
+  if ((update_start_time - last_published_) > rclcpp::Duration::from_seconds(1.0))
   {
     last_published_ = update_start_time;
     publishDiagnostics();
@@ -652,8 +655,8 @@ void EthercatHardware::update(bool reset, bool halt)
 
   if (diagnostics_.collect_extra_timing_)
   {
-    ros::Time publish_end_time(ros::Time::now());  
-    diagnostics_.publish_acc_((publish_end_time - unpack_end_time).toSec());
+    rclcpp::Time publish_end_time(::ethercat_hardware::now());  
+    diagnostics_.publish_acc_((publish_end_time - unpack_end_time).seconds());
   }
 }
 
@@ -671,7 +674,7 @@ void EthercatHardware::haltMotors(bool error, const char* reason)
     if (error)
     {
       ++diagnostics_.halt_motors_error_count_;
-      if ((ros::Time::now() - last_reset_) < ros::Duration(0.5))
+      if ((::ethercat_hardware::now() - last_reset_) < rclcpp::Duration::from_seconds(0.5))
       {
         // halted soon after reset
         diagnostics_.halt_after_reset_ = true;
@@ -715,11 +718,11 @@ void EthercatHardware::publishDiagnostics()
 }
 
 
-boost::shared_ptr<EthercatDevice>
+std::shared_ptr<EthercatDevice>
 EthercatHardware::configSlave(EtherCAT_SlaveHandler *sh)
 {
   static int start_address = 0x00010000;
-  boost::shared_ptr<EthercatDevice> p;
+  std::shared_ptr<EthercatDevice> p;
   unsigned product_code = sh->get_product_code();
   unsigned serial = sh->get_serial();
   uint32_t revision = sh->get_revision();
@@ -768,8 +771,8 @@ EthercatHardware::configSlave(EtherCAT_SlaveHandler *sh)
     {
       if (matching_class_name.size() != 0)
       {
-        ROS_ERROR("Found more than 1 EtherCAT driver for device with product code : %d", product_code);
-        ROS_ERROR("First class name = '%s'.  Second class name = '%s'",
+        RCLCPP_ERROR(::ethercat_hardware::logger(), "Found more than 1 EtherCAT driver for device with product code : %d", product_code);
+        RCLCPP_ERROR(::ethercat_hardware::logger(), "First class name = '%s'.  Second class name = '%s'",
                   class_name.c_str(), matching_class_name.c_str());
       }
       matching_class_name = class_name;
@@ -778,34 +781,34 @@ EthercatHardware::configSlave(EtherCAT_SlaveHandler *sh)
 
   if (matching_class_name.size() != 0)
   {
-    //ROS_WARN("Using driver class '%s' for device with product code %d", 
+    //RCLCPP_WARN(::ethercat_hardware::logger(), "Using driver class '%s' for device with product code %d", 
     //         matching_class_name.c_str(), product_code);
     try {      
-      p = device_loader_.createInstance(matching_class_name);
+      p = device_loader_.createSharedInstance(matching_class_name);
     }
     catch (pluginlib::LibraryLoadException &e)
     {
       p.reset();
-      ROS_FATAL("Unable to load plugin for slave #%d, product code: %u (0x%X), serial: %u (0x%X), revision: %d (0x%X)",
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to load plugin for slave #%d, product code: %u (0x%X), serial: %u (0x%X), revision: %d (0x%X)",
                 slave, product_code, product_code, serial, serial, revision, revision);
-      ROS_FATAL("%s", e.what());
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "%s", e.what());
     }    
   }
   else
   {
     if ((product_code==0xbaddbadd) || (serial==0xbaddbadd) || (revision==0xbaddbadd))
     {
-      ROS_FATAL("Note: 0xBADDBADD indicates that the value was not read correctly from device.");
-      ROS_FATAL("Perhaps you should power-cycle the MCBs");
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "Note: 0xBADDBADD indicates that the value was not read correctly from device.");
+      RCLCPP_FATAL(::ethercat_hardware::logger(), "Perhaps you should power-cycle the MCBs");
     }
     else 
     {
-      ROS_ERROR("Unable to load plugin for slave #%d, product code: %u (0x%X), serial: %u (0x%X), revision: %d (0x%X)",
+      RCLCPP_ERROR(::ethercat_hardware::logger(), "Unable to load plugin for slave #%d, product code: %u (0x%X), serial: %u (0x%X), revision: %d (0x%X)",
                 slave, product_code, product_code, serial, serial, revision, revision);
-      ROS_ERROR("Possible classes:");
+      RCLCPP_ERROR(::ethercat_hardware::logger(), "Possible classes:");
       BOOST_FOREACH(const std::string &class_name, classes)
       {
-        ROS_ERROR("  %s", class_name.c_str());
+        RCLCPP_ERROR(::ethercat_hardware::logger(), "  %s", class_name.c_str());
       }
       
       // TODO, use default plugin for ethercat devices that have no driver. 
@@ -815,6 +818,7 @@ EthercatHardware::configSlave(EtherCAT_SlaveHandler *sh)
 
   if (p != NULL)
   {
+    p->setNode(node_);
     p->construct(sh, start_address);
   }
 
@@ -822,96 +826,54 @@ EthercatHardware::configSlave(EtherCAT_SlaveHandler *sh)
 }
 
 
-boost::shared_ptr<EthercatDevice>
+std::shared_ptr<EthercatDevice>
 EthercatHardware::configNonEthercatDevice(const std::string &name, const std::string &type)
 {
-  boost::shared_ptr<EthercatDevice> p;
+  std::shared_ptr<EthercatDevice> p;
   try {
-    p = device_loader_.createInstance(type);
+    p = device_loader_.createSharedInstance(type);
   }
   catch (pluginlib::LibraryLoadException &e)
   {
     p.reset();
-    ROS_FATAL("Unable to load plugin for non-EtherCAT device '%s' with type: %s : %s"
+    RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to load plugin for non-EtherCAT device '%s' with type: %s : %s"
               , name.c_str(), type.c_str(), e.what());
   }
   if (p) {
-    ROS_INFO("Creating non-EtherCAT device '%s' of type '%s'", name.c_str(), type.c_str());
-    ros::NodeHandle nh(node_, "non_ethercat_devices/"+name);
-    p->construct(nh);
+    RCLCPP_INFO(::ethercat_hardware::logger(), "Creating non-EtherCAT device '%s' of type '%s'", name.c_str(), type.c_str());
+    p->setNode(node_);
+    p->construct("non_ethercat_devices." + name);
   }
   return p;
 }
 
 
-// Do this to get access to Struct (std::map) element of XmlRpcValue
-class MyXmlRpcValue : public XmlRpc::XmlRpcValue
-{
-public:
-  MyXmlRpcValue(XmlRpc::XmlRpcValue &value) : XmlRpc::XmlRpcValue(value) { }
-  XmlRpcValue::ValueStruct &getMap() {return *_value.asStruct;}
-};
-
 void EthercatHardware::loadNonEthercatDevices()
 {
-  // non-EtherCAT device drivers are descibed via struct named "non_ethercat_devices"
-  // Each element of "non_ethercat_devices" must be a struct that contains a "type" field.
-  // The element struct can also contain other elements that are used as configuration parameters
-  // for the device plugin.
-  // Example:
-  //   non_ethercat_devices:
-  //     netft1:
-  //       type: NetFT
-  //       address: 192.168.1.1
-  //       publish_period: 0.01
-  //     netft2:
-  //       type: NetFT
-  //       address: 192.168.1.2
-  //       publish_period: 0.01
-  //     dummy_device:
-  //       type: Dummy
-  //       msg: "This a dummy device"
-  //
-  //   The name of the device is used to create a ros::NodeHandle that is
-  //    that is passed to construct function of device class.
-  //   NOTE: construct function is not the same as C++ construtor
-  if (!node_.hasParam("non_ethercat_devices"))
+  // ROS 2 port: ROS parameters cannot be nested structs anymore, so the ROS 1 struct
+  //   non_ethercat_devices: {netft1: {type: NetFT, address: ...}, ...}
+  // becomes a list of names plus one "type" parameter per device:
+  //   non_ethercat_devices: [netft1]
+  //   non_ethercat_devices.netft1.type: NetFT
+  //   non_ethercat_devices.netft1.address: ...   (read by the device in construct())
+  // The PR2 at IAI does not use non-EtherCAT devices.
+  std::vector<std::string> names;
+  if (!ethercat_hardware::getParam(node_, "non_ethercat_devices", names))
   {
     // It is perfectly fine if there is no list of non-ethercat devices
     return;
   }
 
-  XmlRpc::XmlRpcValue devices;
-  node_.getParam("non_ethercat_devices", devices);
-  if (devices.getType() != XmlRpc::XmlRpcValue::TypeStruct)
+  for (const std::string &name : names)
   {
-    ROS_ERROR("Rosparam 'non_ethercat_devices' is not a struct type");
-    return;
-  }
-
-  MyXmlRpcValue my_devices(devices);
-  typedef XmlRpc::XmlRpcValue::ValueStruct::value_type map_item_t ;
-  BOOST_FOREACH(map_item_t &item, my_devices.getMap())
-  {    
-    const std::string &name(item.first);
-    XmlRpc::XmlRpcValue &device_info(item.second);
-
-    if (device_info.getType() != XmlRpc::XmlRpcValue::TypeStruct)
+    std::string type;
+    if (!ethercat_hardware::getParam(node_, "non_ethercat_devices." + name + ".type", type))
     {
-      ROS_ERROR("non_ethercat_devices/%s is not a struct type", name.c_str());
+      RCLCPP_ERROR(::ethercat_hardware::logger(), "non_ethercat_devices.%s.type is not set", name.c_str());
       continue;
     }
 
-    if (!device_info.hasMember("type"))
-    {
-      ROS_ERROR("non_ethercat_devices/%s 'type' element", name.c_str());
-      continue;
-    }
-    
-    std::string type(static_cast<std::string>(device_info["type"])); 
-
-    boost::shared_ptr<EthercatDevice> new_device = 
-      configNonEthercatDevice(name,type);
+    std::shared_ptr<EthercatDevice> new_device = configNonEthercatDevice(name, type);
     if (new_device != NULL)
     {
       slaves_.push_back(new_device);
@@ -948,7 +910,7 @@ void EthercatHardware::collectDiagnostics()
 
   for (unsigned i = 0; i < slaves_.size(); ++i)
   {    
-    boost::shared_ptr<EthercatDevice> d(slaves_[i]);
+    std::shared_ptr<EthercatDevice> d(slaves_[i]);
     d->collectDiagnostics(oob_com_);
   }
 }
@@ -1001,13 +963,13 @@ bool EthercatHardware::publishTrace(int position, const string &reason, unsigned
 {
   if (position >= (int)slaves_.size())
   {
-    ROS_WARN("Invalid device position %d.  Use 0-%d, or -1.", position, int(slaves_.size())-1);
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Invalid device position %d.  Use 0-%d, or -1.", position, int(slaves_.size())-1);
     return false;
   }
 
   if (level > 2) 
   {
-    ROS_WARN("Invalid level : %d.  Using level=2 (ERROR).", level);
+    RCLCPP_WARN(::ethercat_hardware::logger(), "Invalid level : %d.  Using level=2 (ERROR).", level);
     level = 2;
   }
 
@@ -1029,7 +991,7 @@ bool EthercatHardware::publishTrace(int position, const string &reason, unsigned
     retval = slaves_[position]->publishTrace(new_reason,level,delay);
     if (!retval) 
     {
-      ROS_WARN("Device %d does not support publishing trace", position);
+      RCLCPP_WARN(::ethercat_hardware::logger(), "Device %d does not support publishing trace", position);
     }
   }
   return retval;

@@ -35,12 +35,12 @@
 #ifndef ETHERCAT_HARDWARE__WG_SOFT_PROCESSOR_H
 #define ETHERCAT_HARDWARE__WG_SOFT_PROCESSOR_H
 
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include "ethercat_hardware/ethercat_com.h"
 #include "ethercat_hardware/wg_mailbox.h"
-#include "ethercat_hardware/SoftProcessorFirmwareWrite.h"
-#include "ethercat_hardware/SoftProcessorFirmwareRead.h"
-#include "ethercat_hardware/SoftProcessorReset.h"
+#include <ethercat_hardware/srv/soft_processor_firmware_write.hpp>
+#include <ethercat_hardware/srv/soft_processor_firmware_read.hpp>
+#include <ethercat_hardware/srv/soft_processor_reset.hpp>
 
 #include <vector>
 #include <ostream>
@@ -58,7 +58,7 @@ class WGSoftProcessor
 {
 public:
   WGSoftProcessor();
-  bool initialize(EthercatCom *com);
+  bool initialize(EthercatCom *com, const rclcpp::Node::SharedPtr &node);
 
   struct Info 
   {
@@ -85,16 +85,16 @@ protected:
 
   std::vector<Info> processors_;
 
-  bool writeFirmwareCB(ethercat_hardware::SoftProcessorFirmwareWrite::Request &request, 
-                       ethercat_hardware::SoftProcessorFirmwareWrite::Response &response);
-  bool readFirmwareCB(ethercat_hardware::SoftProcessorFirmwareRead::Request &request, 
-                      ethercat_hardware::SoftProcessorFirmwareRead::Response &response);
-  bool resetCB(ethercat_hardware::SoftProcessorReset::Request &request, 
-               ethercat_hardware::SoftProcessorReset::Response &response);
+  bool writeFirmwareCB(ethercat_hardware::srv::SoftProcessorFirmwareWrite::Request &request, 
+                       ethercat_hardware::srv::SoftProcessorFirmwareWrite::Response &response);
+  bool readFirmwareCB(ethercat_hardware::srv::SoftProcessorFirmwareRead::Request &request, 
+                      ethercat_hardware::srv::SoftProcessorFirmwareRead::Response &response);
+  bool resetCB(ethercat_hardware::srv::SoftProcessorReset::Request &request, 
+               ethercat_hardware::srv::SoftProcessorReset::Response &response);
 
-  ros::ServiceServer read_firmware_service_; //!< service that allows read of soft processor firmware
-  ros::ServiceServer write_firmware_service_; //!< service that allows write of soft processor firmware
-  ros::ServiceServer reset_service_;  //!< service that resets soft-processor
+  rclcpp::Service<ethercat_hardware::srv::SoftProcessorFirmwareRead>::SharedPtr read_firmware_service_; //!< service that allows read of soft processor firmware
+  rclcpp::Service<ethercat_hardware::srv::SoftProcessorFirmwareWrite>::SharedPtr write_firmware_service_; //!< service that allows write of soft processor firmware
+  rclcpp::Service<ethercat_hardware::srv::SoftProcessorReset>::SharedPtr reset_service_;  //!< service that resets soft-processor
 
   //! Puts soft processor in reset
   bool assertReset(const Info &info, std::ostream &err_msg);

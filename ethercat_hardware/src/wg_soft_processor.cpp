@@ -1,4 +1,5 @@
 #include <ethercat_hardware/wg_soft_processor.h>
+#include "ethercat_hardware/ros_helpers.h"
 
 #include <sstream>
 #include <boost/foreach.hpp>
@@ -12,13 +13,35 @@ WGSoftProcessor::WGSoftProcessor()
 
 }
 
-bool WGSoftProcessor::initialize(EthercatCom *com)
+bool WGSoftProcessor::initialize(EthercatCom *com, const rclcpp::Node::SharedPtr &node)
 {
   com_ = com;
-  ros::NodeHandle nh("~/soft_processor/");
-  read_firmware_service_ = nh.advertiseService("read_firmware", &WGSoftProcessor::readFirmwareCB, this);
-  write_firmware_service_ = nh.advertiseService("write_firmware", &WGSoftProcessor::writeFirmwareCB, this);
-  reset_service_ = nh.advertiseService("reset", &WGSoftProcessor::resetCB, this);
+  if (!node)
+  {
+    return true;
+  }
+
+  // Every WG06 owns a WGSoftProcessor and they all use the same service names. In ROS 1 only
+  // the first advertiseService() succeeded (later ones failed with an error), so only the
+  // first board's soft processors were reachable. ROS 2 would silently create competing
+  // servers instead, so keep the ROS 1 behaviour explicitly: the first instance registers.
+  static bool services_created = false;
+  if (services_created)
+  {
+    RCLCPP_DEBUG(::ethercat_hardware::logger(), "Soft processor services already provided by another device");
+    return true;
+  }
+  services_created = true;
+
+  using Read = ethercat_hardware::srv::SoftProcessorFirmwareRead;
+  using Write = ethercat_hardware::srv::SoftProcessorFirmwareWrite;
+  using Reset = ethercat_hardware::srv::SoftProcessorReset;
+  read_firmware_service_ = node->create_service<Read>("~/soft_processor/read_firmware",
+    [this](const std::shared_ptr<Read::Request> req, std::shared_ptr<Read::Response> res) { readFirmwareCB(*req, *res); });
+  write_firmware_service_ = node->create_service<Write>("~/soft_processor/write_firmware",
+    [this](const std::shared_ptr<Write::Request> req, std::shared_ptr<Write::Response> res) { writeFirmwareCB(*req, *res); });
+  reset_service_ = node->create_service<Reset>("~/soft_processor/reset",
+    [this](const std::shared_ptr<Reset::Request> req, std::shared_ptr<Reset::Response> res) { resetCB(*req, *res); });
   return true;
 }
 
@@ -30,7 +53,7 @@ void WGSoftProcessor::add(WGMailbox *mbx,
 {
   Info info(mbx, actuator_name, processor_name, iram_address, ctrl_address);
   processors_.push_back(info);
-  ROS_INFO("Processor : %s/%s", actuator_name.c_str(), processor_name.c_str());
+  RCLCPP_INFO(::ethercat_hardware::logger(), "Processor : %s/%s", actuator_name.c_str(), processor_name.c_str());
 }
 
 
@@ -53,8 +76,8 @@ const WGSoftProcessor::Info* WGSoftProcessor::get(const std::string &actuator_na
 
 
 
-bool WGSoftProcessor::readFirmwareCB(ethercat_hardware::SoftProcessorFirmwareRead::Request &request, 
-                                     ethercat_hardware::SoftProcessorFirmwareRead::Response &response)
+bool WGSoftProcessor::readFirmwareCB(ethercat_hardware::srv::SoftProcessorFirmwareRead::Request &request, 
+                                     ethercat_hardware::srv::SoftProcessorFirmwareRead::Response &response)
 {
   response.success = false;
   response.error_msg = "";
@@ -103,8 +126,8 @@ bool WGSoftProcessor::readFirmwareCB(ethercat_hardware::SoftProcessorFirmwareRea
 
 
 
-bool WGSoftProcessor::writeFirmwareCB(ethercat_hardware::SoftProcessorFirmwareWrite::Request &request, 
-                                      ethercat_hardware::SoftProcessorFirmwareWrite::Response &response)
+bool WGSoftProcessor::writeFirmwareCB(ethercat_hardware::srv::SoftProcessorFirmwareWrite::Request &request, 
+                                      ethercat_hardware::srv::SoftProcessorFirmwareWrite::Response &response)
 {
   response.success = false;
   response.error_msg = "";
@@ -140,8 +163,8 @@ bool WGSoftProcessor::writeFirmwareCB(ethercat_hardware::SoftProcessorFirmwareWr
 }
 
 
-bool WGSoftProcessor::resetCB(ethercat_hardware::SoftProcessorReset::Request &request, 
-                              ethercat_hardware::SoftProcessorReset::Response &response)
+bool WGSoftProcessor::resetCB(ethercat_hardware::srv::SoftProcessorReset::Request &request, 
+                              ethercat_hardware::srv::SoftProcessorReset::Response &response)
 {
   response.success = false;
   response.error_msg = "";

@@ -39,10 +39,10 @@
 
 #include <ethercat_hardware/wg_soft_processor.h>
 
-#include <pr2_msgs/PressureState.h>
-#include <pr2_msgs/AccelerometerState.h>
-#include <ethercat_hardware/RawFTData.h>
-#include <geometry_msgs/WrenchStamped.h>
+#include <pr2_msgs/msg/pressure_state.hpp>
+#include <pr2_msgs/msg/accelerometer_state.hpp>
+#include <ethercat_hardware/msg/raw_ft_data.hpp>
+#include <geometry_msgs/msg/wrench_stamped.hpp>
 
 struct WG06StatusWithAccel
 {
@@ -99,8 +99,9 @@ public:
   
   void print() const;
 
-  bool getRosParams(ros::NodeHandle nh);
-  bool getDoubleArray(XmlRpc::XmlRpcValue params, const char* name, double *results, unsigned len);
+  //! \param prefix  parameter prefix, e.g. "l_gripper_motor.ft_params."
+  bool getRosParams(const rclcpp::Node::SharedPtr &node, const std::string &prefix);
+  bool getDoubleArray(const rclcpp::Node::SharedPtr &node, const std::string &name, double *results, unsigned len);
   double calibration_coeff_[36];
   double offsets_[6];
   double gains_[6];
@@ -170,7 +171,7 @@ public:
   void packCommand(unsigned char *buffer, bool halt, bool reset);
   bool unpackState(unsigned char *this_buffer, unsigned char *prev_buffer);
 
-  virtual void multiDiagnostics(vector<diagnostic_msgs::DiagnosticStatus> &vec, unsigned char *buffer);
+  virtual void multiDiagnostics(vector<diagnostic_msgs::msg::DiagnosticStatus> &vec, unsigned char *buffer);
   enum
   {
     PRODUCT_CODE = 6805006
@@ -206,15 +207,15 @@ private:
 
   unsigned accelerometer_samples_; //!< Number of accelerometer samples since last publish cycle
   unsigned accelerometer_missed_samples_;  //!< Total of accelerometer samples that were missed
-  ros::Time last_publish_time_; //!< Time diagnostics was last published
+  rclcpp::Time last_publish_time_; //!< Time diagnostics was last published
   bool first_publish_; 
 
   static const unsigned NUM_PRESSURE_REGIONS = 22;    
   uint32_t last_pressure_time_;
-  realtime_tools::RealtimePublisher<pr2_msgs::PressureState> *pressure_publisher_;
-  realtime_tools::RealtimePublisher<pr2_msgs::AccelerometerState> *accel_publisher_;
+  realtime_tools::RealtimePublisher<pr2_msgs::msg::PressureState> *pressure_publisher_;
+  realtime_tools::RealtimePublisher<pr2_msgs::msg::AccelerometerState> *accel_publisher_;
 
-  void convertFTDataSampleToWrench(const FTDataSample &sample, geometry_msgs::Wrench &wrench);
+  void convertFTDataSampleToWrench(const FTDataSample &sample, geometry_msgs::msg::Wrench &wrench);
   static const unsigned MAX_FT_SAMPLES = 4;  
   static const unsigned NUM_FT_CHANNELS = 6;
   static const int FT_VHALF_IDEAL = 32768; //!< Vhalf ADC measurement is ideally about (1<<16)/2
@@ -234,8 +235,8 @@ private:
   pr2_hardware_interface::ForceTorque force_torque_;
 
   //! Realtime Publisher of RAW F/T data 
-  realtime_tools::RealtimePublisher<ethercat_hardware::RawFTData> *raw_ft_publisher_;
-  realtime_tools::RealtimePublisher<geometry_msgs::WrenchStamped> *ft_publisher_;
+  realtime_tools::RealtimePublisher<ethercat_hardware::msg::RawFTData> *raw_ft_publisher_;
+  realtime_tools::RealtimePublisher<geometry_msgs::msg::WrenchStamped> *ft_publisher_;
   //pr2_hardware_interface::AnalogIn ft_analog_in_;      //!< Provides
   FTParamsInternal ft_params_;
 

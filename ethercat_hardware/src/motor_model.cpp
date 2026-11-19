@@ -1,4 +1,5 @@
 #include <ethercat_hardware/motor_model.h>
+#include "ethercat_hardware/ros_helpers.h"
 
 //static double max(double a, double b) {return (a>b)?a:b;}
 static double min(double a, double b) {return (a<b)?a:b;}
@@ -50,13 +51,18 @@ void MotorModel::reset()
 
 /**  \brief Initializes motor trace publisher
  */
-bool MotorModel::initialize(const ethercat_hardware::ActuatorInfo &actuator_info, 
-                            const ethercat_hardware::BoardInfo &board_info)
+bool MotorModel::initialize(const ethercat_hardware::msg::ActuatorInfo &actuator_info, 
+                            const ethercat_hardware::msg::BoardInfo &board_info,
+                            const rclcpp::Node::SharedPtr &node)
 {
   std::string topic("motor_trace");
   if (!actuator_info.name.empty())
     topic = topic + "/" + actuator_info.name;
-  publisher_ = new realtime_tools::RealtimePublisher<ethercat_hardware::MotorTrace>(ros::NodeHandle(), topic, 1, true);
+  if (!node)
+    return false;
+  // latched in ROS 1 -> transient_local
+  publisher_ = new realtime_tools::RealtimePublisher<ethercat_hardware::msg::MotorTrace>(
+    node->create_publisher<ethercat_hardware::msg::MotorTrace>(topic, rclcpp::QoS(1).transient_local()));
   if (publisher_ == NULL) 
     return false;
 
@@ -66,14 +72,14 @@ bool MotorModel::initialize(const ethercat_hardware::ActuatorInfo &actuator_info
   if (actuator_info_.speed_constant > 0.0) {
     backemf_constant_ = 1.0 / (actuator_info_.speed_constant * 2.0 * M_PI * 1.0/60.0);
   } else {
-    ROS_ERROR("Invalid speed constant of %f for %s", actuator_info_.speed_constant, actuator_info_.name.c_str());
+    RCLCPP_ERROR(::ethercat_hardware::logger(), "Invalid speed constant of %f for %s", actuator_info_.speed_constant, actuator_info_.name.c_str());
     return false;
   }
 
   current_error_limit_ = board_info_.hw_max_current * 0.30;
 
   {
-    ethercat_hardware::MotorTrace &msg(publisher_->msg_);
+    ethercat_hardware::msg::MotorTrace &msg(publisher_->msg_);
     msg.actuator_info = actuator_info;  
     msg.board_info = board_info;
     msg.samples.reserve(trace_size_);
@@ -98,9 +104,9 @@ void MotorModel::checkPublish()
   if ((publisher_==NULL) || (!publisher_->trylock())) 
     return;
   
-  ethercat_hardware::MotorTrace &msg(publisher_->msg_);
+  ethercat_hardware::msg::MotorTrace &msg(publisher_->msg_);
   
-  msg.header.stamp = ros::Time::now();  
+  msg.header.stamp = ::ethercat_hardware::now();  
   msg.reason = publish_reason_;
   unsigned size=trace_buffer_.size();
   msg.samples.clear();
@@ -195,11 +201,11 @@ void MotorModel::diagnostics(diagnostic_updater::DiagnosticStatusWrapper &d)
  *        
  *   Adds sample to motor model.  Also, adds sample to motor trace.  
  */
-void MotorModel::sample(const ethercat_hardware::MotorTraceSample &s)
+void MotorModel::sample(const ethercat_hardware::msg::MotorTraceSample &s)
 {
 
-  const ethercat_hardware::ActuatorInfo &ai(actuator_info_);
-  const ethercat_hardware::BoardInfo &bi(board_info_);
+  const ethercat_hardware::msg::ActuatorInfo &ai(actuator_info_);
+  const ethercat_hardware::msg::BoardInfo &bi(board_info_);
   
   // Estimate what voltage board should be outputting.
   double board_voltage = s.supply_voltage * s.programmed_pwm - bi.board_resistance * s.measured_current;
@@ -292,7 +298,7 @@ void MotorModel::sample(const ethercat_hardware::MotorTraceSample &s)
 
   // Add values calculated by model to new sample in trace
   {
-    ethercat_hardware::MotorTraceSample &s2(trace_buffer_.at(trace_index_));
+    ethercat_hardware::msg::MotorTraceSample &s2(trace_buffer_.at(trace_index_));
     s2.motor_voltage_error_limit           = motor_voltage_error_limit;
     s2.filtered_motor_voltage_error        = motor_voltage_error_.filter();
     s2.filtered_abs_motor_voltage_error    = abs_motor_voltage_error_.filter();

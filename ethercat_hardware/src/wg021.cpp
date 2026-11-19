@@ -33,6 +33,7 @@
  *********************************************************************/
 
 #include <iomanip>
+#include "ethercat_hardware/ros_helpers.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -63,7 +64,7 @@ void WG021::construct(EtherCAT_SlaveHandler *sh, int &start_address)
   command_size_ = sizeof(WG021Command);
 
   EtherCAT_FMMU_Config *fmmu = new EtherCAT_FMMU_Config(2);
-  //ROS_DEBUG("device %d, command  0x%X = 0x10000+%d", (int)sh->get_ring_position(), start_address, start_address-0x10000);
+  //RCLCPP_DEBUG(::ethercat_hardware::logger(), "device %d, command  0x%X = 0x10000+%d", (int)sh->get_ring_position(), start_address, start_address-0x10000);
   (*fmmu)[0] = EC_FMMU(start_address, // Logical start address
                        command_size_,// Logical length
                        0x00, // Logical StartBit
@@ -76,7 +77,7 @@ void WG021::construct(EtherCAT_SlaveHandler *sh, int &start_address)
 
   start_address += command_size_;
 
-  //ROS_DEBUG("device %d, status   0x%X = 0x10000+%d", (int)sh->get_ring_position(), start_address, start_address-0x10000);
+  //RCLCPP_DEBUG(::ethercat_hardware::logger(), "device %d, status   0x%X = 0x10000+%d", (int)sh->get_ring_position(), start_address, start_address-0x10000);
   (*fmmu)[1] = EC_FMMU(start_address, // Logical start address
                        base_status, // Logical length
                        0x00, // Logical StartBit
@@ -136,7 +137,7 @@ int WG021::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_
     digital_outs[i].d->name_ = string(actuator_info_.name_) + digital_outs[i].name;
     if (hw && !hw->addDigitalOut(digital_outs[i].d))
     {
-        ROS_FATAL("A digital out of the name '%s' already exists.  Device #%02d has a duplicate name", digital_outs[i].d->name_.c_str(), sh_->get_ring_position());
+        RCLCPP_FATAL(::ethercat_hardware::logger(), "A digital out of the name '%s' already exists.  Device #%02d has a duplicate name", digital_outs[i].d->name_.c_str(), sh_->get_ring_position());
         return -1;
     }
   }
@@ -146,7 +147,7 @@ int WG021::initialize(pr2_hardware_interface::HardwareInterface *hw, bool allow_
     projector_.name_ = actuator_info_.name_;
     if (hw && !hw->addProjector(&projector_))
     {
-        ROS_FATAL("A projector of the name '%s' already exists.  Device #%02d has a duplicate name", projector_.name_.c_str(), sh_->get_ring_position());
+        RCLCPP_FATAL(::ethercat_hardware::logger(), "A projector of the name '%s' already exists.  Device #%02d has a duplicate name", projector_.name_.c_str(), sh_->get_ring_position());
         return -1;
     }
     projector_.command_.enable_ = true;

@@ -43,13 +43,14 @@
 
 #include <pr2_hardware_interface/hardware_interface.h>
 
-#include <diagnostic_updater/DiagnosticStatusWrapper.h>
+#include <diagnostic_updater/diagnostic_status_wrapper.hpp>
 
-#include <diagnostic_msgs/DiagnosticArray.h>
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
 
 #include <ethercat_hardware/ethercat_com.h>
+#include "ethercat_hardware/ros_helpers.h"
 
-#include <pluginlib/class_list_macros.h>
+#include <pluginlib/class_list_macros.hpp>
 
 using namespace std;
 
@@ -136,8 +137,13 @@ public:
   //!< Construct EtherCAT device
   virtual void construct(EtherCAT_SlaveHandler *sh, int &start_address);
 
-  //!< Construct non-EtherCAT device
-  virtual void construct(ros::NodeHandle &nh);
+  //!< Construct non-EtherCAT device. Its parameters live under \p param_prefix on node_
+  //!< (ROS 1 passed a NodeHandle in the "non_ethercat_devices/<name>" namespace instead).
+  virtual void construct(const std::string &param_prefix);
+
+  //!< ROS 2: node used for parameters, publishers and services. Set by EthercatHardware before
+  //!< construct(); may stay null when use_ros_ is false (e.g. standalone tools).
+  void setNode(const rclcpp::Node::SharedPtr &node) { node_ = node; }
 
   EthercatDevice();
   virtual ~EthercatDevice();
@@ -158,7 +164,7 @@ public:
    * \param vec     Vector of diagnostics status messages. Slave appends one or more new diagnostic status'.
    * \param buffer  Pointer to slave process data.\ 
    */  
-  virtual void multiDiagnostics(vector<diagnostic_msgs::DiagnosticStatus> &vec, unsigned char *buffer);
+  virtual void multiDiagnostics(vector<diagnostic_msgs::msg::DiagnosticStatus> &vec, unsigned char *buffer);
 
   /**
    * \brief For EtherCAT device that only publish one EtherCAT Status message.
@@ -213,6 +219,7 @@ public:
   }
 
   bool use_ros_;
+  rclcpp::Node::SharedPtr node_;
 
   EtherCAT_SlaveHandler *sh_;
   unsigned int command_size_;
