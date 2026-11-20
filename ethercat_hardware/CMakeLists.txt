@@ -40,7 +40,7 @@ rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_type
 
 # Device drivers (WG05, WG06, WG021, WG014, EK1122) are pluginlib plugins living in this library.
 add_library(${PROJECT_NAME}_lib SHARED
-  src/ethercat_hardware.cpp src/ethercat_com.cpp
+  src/ethercat_hardware.cpp src/ethercat_com.cpp src/interface_lock.cpp
   src/ethercat_device.cpp src/wg0x.cpp src/wg05.cpp src/wg06.cpp src/wg021.cpp
   src/ek1122.cpp src/wg014.cpp src/motor_model.cpp
   src/ethernet_interface_info.cpp src/motor_heating_model.cpp

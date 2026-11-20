@@ -78,11 +78,16 @@ void EthercatHardwareDiagnostics::resetMaxTiming()
 EthercatHardware::EthercatHardware(const rclcpp::Node::SharedPtr &node) :
   hw_(0), node_(node),
   device_loader_("ethercat_hardware", "EthercatDevice"),
-  ni_(0), this_buffer_(0), prev_buffer_(0), buffer_size_(0), halt_motors_(true), reset_state_(0), 
-  max_pd_retries_(10),
+  // ROS 2 port: al_, em_, num_ethercat_devices_, buffers_, timeout_ and oob_com_ were left
+  // uninitialized. ROS 1 never destroyed an EthercatHardware after a failed init() (it exited),
+  // but tryInit() can fail early and the destructor then deleted garbage pointers.
+  ni_(0), al_(0), em_(0), num_ethercat_devices_(0),
+  this_buffer_(0), prev_buffer_(0), buffers_(0), buffer_size_(0), halt_motors_(true), reset_state_(0), 
+  timeout_(0), max_pd_retries_(10),
   diagnostics_publisher_(node_), 
   // latched in ROS 1 -> transient_local
-  motor_publisher_(node_->create_publisher<std_msgs::msg::Bool>("motors_halted", rclcpp::QoS(1).transient_local()))
+  motor_publisher_(node_->create_publisher<std_msgs::msg::Bool>("motors_halted", rclcpp::QoS(1).transient_local())),
+  oob_com_(0)
 {
   
 }
@@ -90,7 +95,7 @@ EthercatHardware::EthercatHardware(const rclcpp::Node::SharedPtr &node) :
 EthercatHardware::~EthercatHardware()
 {
   diagnostics_publisher_.stop();
-  for (uint32_t i = 0; i < slaves_.size(); ++i)
+  for (uint32_t i = 0; em_ && i < slaves_.size(); ++i)
   {
     EC_FixedStationAddress fsa(i + 1);
     EtherCAT_SlaveHandler *sh = em_->get_slave_handler(fsa);
@@ -107,7 +112,7 @@ EthercatHardware::~EthercatHardware()
 }
 
 
-void EthercatHardware::changeState(EtherCAT_SlaveHandler *sh, EC_State new_state)
+bool EthercatHardware::changeState(EtherCAT_SlaveHandler *sh, EC_State new_state)
 {
   unsigned product_code = sh->get_product_code();
   unsigned serial = sh->get_serial();
@@ -120,19 +125,19 @@ void EthercatHardware::changeState(EtherCAT_SlaveHandler *sh, EC_State new_state
               new_state, slave, product_code, product_code, serial, serial, revision, revision);
     if ((product_code==0xbaddbadd) || (serial==0xbaddbadd) || (revision==0xbaddbadd))
       RCLCPP_FATAL(::ethercat_hardware::logger(), "Note: 0xBADDBADD indicates that the value was not read correctly from device.");
-    exit(EXIT_FAILURE);
+    return false;
   }
+  return true;
 }
 
-void EthercatHardware::init(char *interface, bool allow_unprogrammed)
+bool EthercatHardware::tryInit(char *interface, bool allow_unprogrammed)
 {
   // open temporary socket to use with ioctl
   int sock = socket(PF_INET, SOCK_DGRAM, 0);
   if (sock < 0) {
     int error = errno;
     RCLCPP_FATAL(::ethercat_hardware::logger(), "Couldn't open temp socket : %s", strerror(error));
-    sleep(1);
-    exit(EXIT_FAILURE);    
+    return false;    
   }
   
   struct ifreq ifr;
@@ -140,8 +145,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   if (ioctl(sock, SIOCGIFFLAGS, &ifr) < 0) {
     int error = errno;
     RCLCPP_FATAL(::ethercat_hardware::logger(), "Cannot get interface flags for %s: %s", interface, strerror(error));
-    sleep(1);
-    exit(EXIT_FAILURE);
+    return false;
   }
 
   close(sock);
@@ -149,13 +153,11 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
 
   if (!(ifr.ifr_flags & IFF_UP)) {
     RCLCPP_FATAL(::ethercat_hardware::logger(), "Interface %s is not UP. Try : ifup %s", interface, interface);
-    sleep(1);
-    exit(EXIT_FAILURE);
+    return false;
   }
   if (!(ifr.ifr_flags & IFF_RUNNING)) {
     RCLCPP_FATAL(::ethercat_hardware::logger(), "Interface %s is not RUNNING. Is cable plugged in and device powered?", interface);
-    sleep(1);
-    exit(EXIT_FAILURE);
+    return false;
   }
 
 
@@ -164,8 +166,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   if ((ni_ = init_ec(interface)) == NULL)
   {
     RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to initialize interface: %s", interface);
-    sleep(1);
-    exit(EXIT_FAILURE);
+    return false;
   }
 
   oob_com_ = new EthercatOobCom(ni_);
@@ -175,24 +176,21 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   if ((al_ = EtherCAT_AL::instance()) == NULL)
   {
     RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to initialize Application Layer (AL): %p", al_);
-    sleep(1);
-    exit(EXIT_FAILURE);
+    return false;
   }
 
   num_ethercat_devices_ = al_->get_num_slaves();  // ROS 2 port: was a local shadowing the member
   if (num_ethercat_devices_ == 0)
   {
     RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to locate any slaves");
-    sleep(1);
-    exit(EXIT_FAILURE);
+    return false;
   }
 
   // Initialize Master
   if ((em_ = EtherCAT_Master::instance()) == NULL)
   {
     RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to initialize EtherCAT_Master: %p", em_);
-    sleep(1);
-    exit(EXIT_FAILURE);
+    return false;
   }
 
   // Size slaves vector to hold appropriate number of device pointers
@@ -207,8 +205,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
     if (sh == NULL)
     {
       RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to get slave handler #%d", slave);
-      sleep(1);
-      exit(EXIT_FAILURE);
+      return false;
     }
     slave_handles.push_back(sh);
   }
@@ -220,8 +217,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
     if ((slaves_[slave] = configSlave(sh)) == NULL)
     {      
       RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to configure slave #%d", slave);
-      sleep(1);
-      exit(EXIT_FAILURE);
+      return false;
     }
     buffer_size_ += slaves_[slave]->command_size_ + slaves_[slave]->status_size_;
   }
@@ -232,20 +228,20 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   // Move slave from INIT to PREOP
   BOOST_FOREACH(EtherCAT_SlaveHandler *sh, slave_handles)
   {
-    changeState(sh,EC_PREOP_STATE);
+    if (!changeState(sh,EC_PREOP_STATE)) return false;
   }
 
   // Move slave from PREOP to SAFEOP
   BOOST_FOREACH(EtherCAT_SlaveHandler *sh, slave_handles)
   {
-    changeState(sh,EC_SAFEOP_STATE);
+    if (!changeState(sh,EC_SAFEOP_STATE)) return false;
   }
 
   // Move slave from SAFEOP to OP
   // TODO : move to OP after initializing slave process data
   BOOST_FOREACH(EtherCAT_SlaveHandler *sh, slave_handles)
   {
-    changeState(sh,EC_OP_STATE);
+    if (!changeState(sh,EC_OP_STATE)) return false;
   }
 
   // Allocate buffers to send and receive commands
@@ -258,8 +254,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   if (!txandrx_PD(buffer_size_, this_buffer_, 20))
   {
     RCLCPP_FATAL(::ethercat_hardware::logger(), "No communication with devices");
-    sleep(1);
-    exit(EXIT_FAILURE);
+    return false;
   }
   
   // prev_buffer should contain valid status data when update function is first used
@@ -281,13 +276,12 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
       {
         RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to initialize slave #%d, product code: %d, revision: %d, serial: %d",
                   slave, sh->get_product_code(), sh->get_revision(), sh->get_serial());
-        sleep(1);
       } 
       else 
       {
         RCLCPP_FATAL(::ethercat_hardware::logger(), "Unable to initialize slave #%d", slave);
       }
-      exit(EXIT_FAILURE);
+      return false;
     }
   }
 
@@ -311,8 +305,7 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
     if (set_socket_timeout(ni_, timeout))
     {
       RCLCPP_FATAL(::ethercat_hardware::logger(), "Error setting socket timeout to %d", timeout);      
-      sleep(1);
-      exit(EXIT_FAILURE);
+      return false;
     }
     timeout_ = timeout;
 
@@ -344,6 +337,17 @@ void EthercatHardware::init(char *interface, bool allow_unprogrammed)
   }
 
   diagnostics_publisher_.initialize(interface_, buffer_size_, slaves_, num_ethercat_devices_, timeout_, max_pd_retries_);
+  return true;
+}
+
+void EthercatHardware::init(char *interface, bool allow_unprogrammed)
+{
+  // ROS 1 behaviour, kept for the command-line tools: give the log a moment, then exit.
+  if (!tryInit(interface, allow_unprogrammed))
+  {
+    sleep(1);
+    exit(EXIT_FAILURE);
+  }
 }
 
 

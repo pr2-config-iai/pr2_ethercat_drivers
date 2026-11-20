@@ -15,9 +15,8 @@
  * The only device configuration written is the volatile gripper sensor-enable flag, which the
  * ROS 1 realtime loop also sets on every start.
  *
- * Holds the same interface lock as ROS 1 pr2_ethercat (/var/tmp/run/EtherCAT_<if>.pid, fcntl
- * write lock), using the host's copy when running inside distrobox, so it refuses to start
- * while the ROS 1 robot is running and vice versa.
+ * Holds the same interface lock as ROS 1 pr2_ethercat (see ethercat_hardware/interface_lock.h),
+ * so it refuses to start while the ROS 1 robot is running and vice versa.
  */
 
 #include <fcntl.h>
@@ -40,13 +39,14 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include "ethercat_hardware/ethercat_hardware.h"
+#include "ethercat_hardware/interface_lock.h"
 
 namespace
 {
 
 std::atomic<bool> g_quit{false};
-std::string g_lock_path;  // removed at exit, also when EthercatHardware::init() calls exit()
-void removeLockFile() { if (!g_lock_path.empty()) unlink(g_lock_path.c_str()); }
+// Global, so it is also released (pid file removed) when EthercatHardware::init() calls exit().
+ethercat_hardware::InterfaceLock g_lock;
 void onSignal(int) { g_quit = true; }
 
 constexpr long NSEC_PER_SEC = 1000000000L;
@@ -65,37 +65,6 @@ void timespecAdd(timespec &t, long ns)
 double secondsBetween(const timespec &a, const timespec &b)
 {
   return double(b.tv_sec - a.tv_sec) + double(b.tv_nsec - a.tv_nsec) / NSEC_PER_SEC;
-}
-
-/// Take the same lock as ROS 1 pr2_ethercat. Returns the fd (keep it open), -1 on error,
-/// -2 if another EtherCAT master holds the interface.
-int lockInterface(const std::string &interface, std::string &path)
-{
-  // Inside distrobox the host's /var/tmp is at /run/host/var/tmp; the ROS 1 robot locks there.
-  const std::string dir = (access("/run/host/var/tmp", W_OK) == 0) ? "/run/host/var/tmp/run/" : "/var/tmp/run/";
-  mkdir(dir.c_str(), 0777);
-  path = dir + "EtherCAT_" + interface + ".pid";
-
-  int fd = open(path.c_str(), O_RDWR | O_CREAT, 0666);
-  if (fd < 0)
-  {
-    return -1;
-  }
-  fchmod(fd, 0666);  // like ROS 1 (umask 0): whoever starts the robot next must be able to open it
-  struct flock lock;
-  std::memset(&lock, 0, sizeof(lock));
-  lock.l_type = F_WRLCK;
-  lock.l_whence = SEEK_SET;
-  if (fcntl(fd, F_SETLK, &lock) == -1)
-  {
-    close(fd);
-    return -2;
-  }
-  if (ftruncate(fd, 0) == 0)
-  {
-    dprintf(fd, "%d\n", getpid());
-  }
-  return fd;
 }
 
 void usage(const char *prog)
@@ -146,21 +115,11 @@ int main(int argc, char **argv)
     }
   }
 
-  std::string lock_path;
-  const int lock_fd = lockInterface(interface, lock_path);
-  if (lock_fd == -2)
+  if (g_lock.acquire(interface) != ethercat_hardware::InterfaceLock::Result::ACQUIRED)
   {
-    std::fprintf(stderr, "Another EtherCAT master holds %s (lock %s). Is the ROS 1 robot running?\n",
-                 interface.c_str(), lock_path.c_str());
+    std::fprintf(stderr, "%s\n", g_lock.error().c_str());
     return 1;
   }
-  if (lock_fd < 0)
-  {
-    std::fprintf(stderr, "Cannot create lock file %s: %s\n", lock_path.c_str(), strerror(errno));
-    return 1;
-  }
-  g_lock_path = lock_path;
-  std::atexit(removeLockFile);
 
   signal(SIGINT, onSignal);
   signal(SIGTERM, onSignal);
@@ -260,7 +219,6 @@ int main(int argc, char **argv)
   executor.cancel();
   spin_thread.join();
   rclcpp::shutdown();
-  removeLockFile();  // like ROS 1 cleanupPidFile
-  close(lock_fd);
+  g_lock.release();
   return exit_code;
 }

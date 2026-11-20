@@ -237,6 +237,15 @@ public:
   void init(char *interface, bool allow_unprogrammed);
 
   /*!
+   * \brief Like init(), but returns false on failure instead of exiting the process.
+   *
+   * eml keeps its master and data-link layer as process-wide singletons, so the EtherCAT chain
+   * can only be initialized once per process; do not call this again after a failure or after
+   * destroying a previous EthercatHardware.
+   */
+  bool tryInit(char *interface, bool allow_unprogrammed);
+
+  /*!
    * \brief Collects diagnotics from all devices.
    */
   void collectDiagnostics();
@@ -262,7 +271,7 @@ public:
   pr2_hardware_interface::HardwareInterface *hw_;
 
 private:
-  static void changeState(EtherCAT_SlaveHandler *sh, EC_State new_state);
+  static bool changeState(EtherCAT_SlaveHandler *sh, EC_State new_state);
 
   void loadNonEthercatDevices();
   std::shared_ptr<EthercatDevice> configNonEthercatDevice(const std::string &product_id, const std::string &data);

@@ -7,6 +7,15 @@ Changelog for package ethercat_hardware
 * Port to ROS 2 (Jazzy). The realtime code paths are unchanged; only the ROS interface moved.
 * ``EthercatHardware`` takes an ``rclcpp::Node::SharedPtr``; devices get it via
   ``EthercatDevice::setNode()`` before ``construct()``.
+* ``EthercatHardware::tryInit()``: like ``init()`` but returns false instead of exiting the
+  process, for use inside ros2_control. ``changeState()`` returns bool. ``init()`` keeps the ROS 1
+  behaviour (exit) for the command-line tools. eml's singletons still allow only one
+  initialization per process.
+* ``ethercat_hardware::InterfaceLock``: the ROS 1 compatible ``/var/tmp/run/EtherCAT_<if>.pid``
+  lock, shared by ``read_only_check`` and ``pr2_ros2_control``.
+* Fix: several members (``al_``, ``em_``, ``buffers_``, ``oob_com_``, ...) were uninitialized, so
+  destroying an ``EthercatHardware`` after a failed init freed garbage pointers.
+* Fix: the device plugin loader was destroyed before the devices it created.
 * Parameters (on the node, e.g. ``realtime_loop``): ROS 1 hierarchical names become dotted names.
 
   * ``realtime_socket_timeout``, ``max_pd_retries``: unchanged.
