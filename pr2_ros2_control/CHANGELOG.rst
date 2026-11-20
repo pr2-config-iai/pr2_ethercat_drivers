@@ -4,6 +4,13 @@ Changelog for package pr2_ros2_control
 
 2.0.0 (unreleased)
 ------------------
+* ``pr2_control_node`` publishes ROS 1's "Realtime Control Loop" diagnostics (EtherCAT, controller
+  and loop times, jitter, overruns, loop frequency over 600 ms; same keys and 30 s overrun warning)
+  once a second. The low-frequency motor halt of ROS 1 (below ``min_acceptable_rt_loop_frequency``,
+  750 Hz) is only reported until commanding is added.
+* The first cycle gets the nominal period instead of the ~1 us measured since the loop started:
+  the controller manager keeps periodicity statistics for the whole run, and that one sample made
+  it report "bad periodicity" (about 1.8e6/N Hz too high after N cycles, plus a huge deviation).
 * ``~/reset_motors`` and ``~/halt_motors`` (``std_srvs/Empty``, ``/pr2_ethercat/...`` as in ROS 1).
   While read-only, a reset runs the same sequence as the startup reset (motors stay halted) and
   halt is a no-op.

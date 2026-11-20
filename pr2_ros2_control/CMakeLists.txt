@@ -12,6 +12,8 @@ add_compile_options(-Wall -Wextra)
 find_package(ament_cmake REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(controller_manager REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
+find_package(diagnostic_updater REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
@@ -46,6 +48,8 @@ pluginlib_export_plugin_description_file(hardware_interface pr2_ros2_control_plu
 add_executable(pr2_control_node src/pr2_control_node.cpp)
 target_link_libraries(pr2_control_node
   controller_manager::controller_manager
+  ${diagnostic_msgs_TARGETS}
+  diagnostic_updater::diagnostic_updater
   realtime_tools::realtime_tools
   rclcpp::rclcpp)
 
