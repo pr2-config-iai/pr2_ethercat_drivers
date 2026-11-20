@@ -236,6 +236,21 @@ CallbackReturn Pr2EthercatSystem::on_configure(const rclcpp_lifecycle::State &)
     shutdownHardware();
     return CallbackReturn::ERROR;
   }
+
+  // Same reset as above, on request (dashboard "Reset motors"), e.g. after the breakers were
+  // enabled. Motors stay halted: read() passes halt on every cycle.
+  using Empty = std_srvs::srv::Empty;
+  reset_motors_service_ = get_node()->create_service<Empty>(
+    "~/reset_motors",
+    [this](const std::shared_ptr<Empty::Request>, std::shared_ptr<Empty::Response>) {
+      RCLCPP_INFO(get_logger(), "Motor reset requested: clears latched board faults, motors stay halted.");
+      reset_requested_ = true;
+    });
+  halt_motors_service_ = get_node()->create_service<Empty>(
+    "~/halt_motors",
+    [this](const std::shared_ptr<Empty::Request>, std::shared_ptr<Empty::Response>) {
+      RCLCPP_INFO(get_logger(), "Halt requested: motors are always halted in this version.");
+    });
   return CallbackReturn::SUCCESS;
 }
 
@@ -368,6 +383,8 @@ CallbackReturn Pr2EthercatSystem::on_error(const rclcpp_lifecycle::State &)
 void Pr2EthercatSystem::shutdownHardware()
 {
   stopDiagnosticsThread();
+  reset_motors_service_.reset();
+  halt_motors_service_.reset();
   handles_.clear();
   state_.reset();
   robot_.reset();
@@ -387,7 +404,7 @@ return_type Pr2EthercatSystem::read(const rclcpp::Time &, const rclcpp::Duration
   }
 
   // One EtherCAT exchange: sends the commands from the last write() (halted) and receives status.
-  const bool reset = reset_on_next_read_;
+  const bool reset = reset_on_next_read_ || reset_requested_.exchange(false);
   reset_on_next_read_ = false;
   ec_->update(reset, true /*halt*/);
   state_->propagateActuatorPositionToJointPosition();

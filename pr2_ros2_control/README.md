@@ -13,7 +13,10 @@ ros2_control for the PR2's EtherCAT motor chain (ROS 2 Jazzy).
 **Current state: read-only.** Only state interfaces are exported and the motors are halted on
 every cycle. The component reports an error if any actuator ever reports being enabled. Like ROS 1,
 it sends one motor reset when EtherCAT comes up (with halt still set), which clears the boards'
-latched safety faults and error flags (decision D16).
+latched safety faults and error flags (decision D16). `/pr2_ethercat/reset_motors`
+(`std_srvs/Empty`, as ROS 1) runs the same reset on request, e.g. from `pr2_run_stop_auto_restart`
+after the e-stop is released; `/pr2_ethercat/halt_motors` is a no-op while the motors are always
+halted (decision D18).
 
 ## Running
 

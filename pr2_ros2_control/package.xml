@@ -19,6 +19,7 @@
   <depend>rclcpp_lifecycle</depend>
   <depend>realtime_tools</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>ethercat_hardware</depend>
   <depend>pr2_mechanism_model</depend>
   <depend>tinyxml</depend>

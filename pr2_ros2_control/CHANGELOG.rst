@@ -4,6 +4,9 @@ Changelog for package pr2_ros2_control
 
 2.0.0 (unreleased)
 ------------------
+* ``~/reset_motors`` and ``~/halt_motors`` (``std_srvs/Empty``, ``/pr2_ethercat/...`` as in ROS 1).
+  While read-only, a reset runs the same sequence as the startup reset (motors stay halted) and
+  halt is a no-op.
 * One motor reset with the first EtherCAT exchange, as ROS 1 ``pr2_ethercat`` does in its first cycle,
   with halt still set: clears the boards' latched safety faults and error flags (every board
   reported "Timestamp jumped" for its first packet forever).

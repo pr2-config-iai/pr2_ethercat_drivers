@@ -20,6 +20,7 @@
 #ifndef PR2_ROS2_CONTROL__PR2_ETHERCAT_SYSTEM_HPP_
 #define PR2_ROS2_CONTROL__PR2_ETHERCAT_SYSTEM_HPP_
 
+#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -30,7 +31,9 @@
 
 #include <hardware_interface/system_interface.hpp>
 #include <hardware_interface/types/hardware_component_interface_params.hpp>
+#include <rclcpp/service.hpp>
 #include <rclcpp_lifecycle/state.hpp>
+#include <std_srvs/srv/empty.hpp>
 
 #include "ethercat_hardware/interface_lock.h"
 
@@ -98,6 +101,11 @@ private:
 
   bool fault_reported_ = false;
   bool reset_on_next_read_ = false;  // one motor reset after EtherCAT comes up (see on_configure)
+  // ~/reset_motors and ~/halt_motors (std_srvs/Empty, as ROS 1 pr2_ethercat; the dashboard calls
+  // them). Still read-only: a reset clears the boards' latched faults, halt stays set.
+  std::atomic<bool> reset_requested_{false};
+  rclcpp::Service<std_srvs::srv::Empty>::SharedPtr reset_motors_service_;
+  rclcpp::Service<std_srvs::srv::Empty>::SharedPtr halt_motors_service_;
   std::set<std::string> gripper_transmissions_;  // names, from the URDF
 };
 

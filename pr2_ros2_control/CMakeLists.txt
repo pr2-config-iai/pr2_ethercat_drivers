@@ -17,6 +17,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(ethercat_hardware REQUIRED)
 find_package(pr2_mechanism_model REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -33,6 +34,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   rclcpp::rclcpp
   rclcpp_lifecycle::rclcpp_lifecycle
   ${std_msgs_TARGETS}
+  ${std_srvs_TARGETS}
   ethercat_hardware::ethercat_hardware_lib
   pr2_mechanism_model::pr2_mechanism_model
   PkgConfig::TINYXML)
