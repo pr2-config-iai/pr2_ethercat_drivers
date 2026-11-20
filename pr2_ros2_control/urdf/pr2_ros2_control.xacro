@@ -51,7 +51,7 @@
   </xacro:macro>
 
   <xacro:macro name="pr2_ros2_control"
-               params="interface:=ecat0 allow_unprogrammed:=false commanding_enabled:=false commanded_joints:='' max_effort_fraction:=0.1 min_acceptable_rt_loop_frequency:=750.0">
+               params="interface:=ecat0 allow_unprogrammed:=false commanding_enabled:=false commanded_joints:='' max_effort_fraction:=0.1 min_acceptable_rt_loop_frequency:=750.0 velocity_window:=10">
     <ros2_control name="pr2_ethercat" type="system">
       <hardware>
         <plugin>pr2_ros2_control/Pr2EthercatSystem</plugin>
@@ -62,6 +62,7 @@
         <param name="commanded_joints">${commanded_joints}</param>
         <param name="max_effort_fraction">${max_effort_fraction}</param>
         <param name="min_acceptable_rt_loop_frequency">${min_acceptable_rt_loop_frequency}</param>
+        <param name="velocity_window">${velocity_window}</param>
       </hardware>
       <xacro:pr2_ros2_control_state_joints joints="${pr2_ros2_control_joints}"/>
     </ros2_control>

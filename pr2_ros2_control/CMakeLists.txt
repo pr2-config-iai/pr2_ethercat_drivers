@@ -73,6 +73,8 @@ if(BUILD_TESTING)
   add_dependencies(test_effort_chain pr2_test_urdf)
   target_compile_definitions(test_effort_chain PRIVATE TEST_URDF="${TEST_URDF}")
   target_link_libraries(test_effort_chain ${PROJECT_NAME} PkgConfig::TINYXML)
+  ament_add_gtest(test_velocity_window test/test_velocity_window.cpp)
+  target_include_directories(test_velocity_window PRIVATE include)
 endif()
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)

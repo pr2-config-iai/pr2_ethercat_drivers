@@ -35,8 +35,13 @@ ros2 launch pr2_ros2_control pr2_control.launch.py commanding_enabled:=true \
   "Reset motors", or the e-stop release through `pr2_run_stop_auto_restart`).
 - `/pr2_ethercat/halt_motors` halts until the next reset. As in ROS 1, the motors are also halted
   while the loop frequency over 600 ms is below 750 Hz (`min_acceptable_rt_loop_frequency`).
+- **Velocity:** taken over the last `velocity_window` encoder samples (default 10, about 5 ms of
+  delay) with the boards' sample timestamps, so it moves in steps 10 times finer than ROS 1's
+  one-count-per-cycle steps (0.04 to 0.16 rad/s at the joints). `velocity_window:=1` is ROS 1 (D22).
 - `config/controllers.yaml` defines `r_wrist_roll_effort_controller`
-  (`effort_controllers/JointGroupEffortController`, not started by the launch file).
+  (`effort_controllers/JointGroupEffortController`) and `r_wrist_velocity_controller`
+  (`pid_controller/PidController` on both wrist joints, provisional gains from D23); neither is
+  started by the launch file.
 
 ## Running
 

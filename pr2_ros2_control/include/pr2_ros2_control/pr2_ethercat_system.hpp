@@ -16,6 +16,10 @@
  * min_acceptable_rt_loop_frequency, until ~/reset_motors; they also start halted until the first
  * reset.
  *
+ * Velocity: the actuator velocity is the encoder difference over the last velocity_window samples
+ * (default 10), timed with the motor boards' sample timestamps, instead of ROS 1's single sample whose
+ * steps are 0.04 to 0.16 rad/s at the joints (decision D22); velocity_window 1 gives ROS 1's value.
+ *
  * Calibration: the zero offsets that ROS 1's calibration controllers stored on the motor boards
  * are read back at startup (like ROS 1 does), and each calibrated joint's reference position is
  * set from its URDF <calibration> edge, as ROS 1's calibration controllers do when they start.
@@ -42,6 +46,7 @@
 #include <std_srvs/srv/empty.hpp>
 
 #include "ethercat_hardware/interface_lock.h"
+#include "pr2_ros2_control/velocity_window.hpp"
 
 class EthercatHardware;
 
@@ -110,6 +115,7 @@ private:
   std::set<std::string> commanded_joints_;
   double max_effort_fraction_ = 0.1;
   double min_acceptable_rt_loop_frequency_ = 750.0;
+  int velocity_window_ = 10;  // encoder samples the actuator velocity is taken over (1 = ROS 1)
 
   std::string urdf_;
   ethercat_hardware::InterfaceLock lock_;
@@ -141,6 +147,10 @@ private:
   // Actuators of the transmissions that drive a commanded joint; all others must stay disabled.
   std::set<const pr2_hardware_interface::Actuator *> commanded_actuators_;
   std::vector<char> joint_state_commanded_;  // per RobotState::joint_states_ entry
+
+  // Actuator velocity over velocity_window_ encoder samples, before the transmissions (D22).
+  std::vector<pr2_hardware_interface::Actuator *> windowed_actuators_;
+  std::vector<VelocityWindow> velocity_windows_;
 
   // ROS 1 pr2_ethercat's loop frequency monitor: cycles counted over 200 ms, averaged over the last
   // three counts; below the minimum the motors are halted (until a reset).

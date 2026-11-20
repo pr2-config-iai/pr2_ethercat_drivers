@@ -75,6 +75,12 @@ CallbackReturn Pr2EthercatSystem::on_init(const hardware_interface::HardwareComp
   if (hp.count("max_effort_fraction")) max_effort_fraction_ = std::stod(hp.at("max_effort_fraction"));
   if (hp.count("min_acceptable_rt_loop_frequency"))
     min_acceptable_rt_loop_frequency_ = std::stod(hp.at("min_acceptable_rt_loop_frequency"));
+  if (hp.count("velocity_window")) velocity_window_ = std::stoi(hp.at("velocity_window"));
+  if (velocity_window_ < 1 || velocity_window_ > 1000)
+  {
+    RCLCPP_ERROR(get_logger(), "velocity_window must be within [1, 1000] samples, got %d.", velocity_window_);
+    return CallbackReturn::ERROR;
+  }
   if (!(max_effort_fraction_ >= 0.0 && max_effort_fraction_ <= 1.0))
   {
     RCLCPP_ERROR(get_logger(), "max_effort_fraction must be within [0, 1], got %f.", max_effort_fraction_);
@@ -202,6 +208,18 @@ CallbackReturn Pr2EthercatSystem::on_configure(const rclcpp_lifecycle::State &)
     return CallbackReturn::ERROR;
   }
   state_ = std::make_unique<pr2_mechanism_model::RobotState>(robot_.get());
+  windowed_actuators_.clear();
+  velocity_windows_.clear();
+  if (velocity_window_ > 1)
+  {
+    for (auto &kv : ec_->hw_->actuators_)
+    {
+      windowed_actuators_.push_back(kv.second);
+      velocity_windows_.emplace_back(static_cast<size_t>(velocity_window_));
+    }
+  }
+  RCLCPP_INFO(get_logger(), "Actuator velocity over %d encoder samples%s.", velocity_window_,
+              velocity_window_ == 1 ? " (as ROS 1)" : "");
   // Gripper transmissions, recognised by their URDF type: the transmission classes are plugins in
   // their own library, which this plugin deliberately does not link (see pr2_mechanism_model).
   gripper_transmissions_.clear();
@@ -554,6 +572,12 @@ return_type Pr2EthercatSystem::read(const rclcpp::Time &, const rclcpp::Duration
     halt = true;
   }
   ec_->update(reset, halt);
+  // Position plus zero offset is the raw encoder position, which a calibration does not shift.
+  for (size_t i = 0; i < windowed_actuators_.size(); ++i)
+  {
+    auto &s = windowed_actuators_[i]->state_;
+    s.velocity_ = velocity_windows_[i].update(s.position_ + s.zero_offset_, s.sample_timestamp_.seconds());
+  }
   state_->propagateActuatorPositionToJointPosition();
 
   for (const auto &h : handles_)

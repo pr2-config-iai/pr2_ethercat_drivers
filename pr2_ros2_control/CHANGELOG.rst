@@ -4,6 +4,10 @@ Changelog for package pr2_ros2_control
 
 2.0.0 (unreleased)
 ------------------
+* Actuator velocity over the last ``velocity_window`` encoder samples (default 10), timed with the
+  motor boards' sample timestamps, instead of ROS 1's single-sample difference, whose steps are one
+  encoder count per cycle (0.04 to 0.16 rad/s at the joints); 10 times finer for about 5 ms of delay
+  (decision D22). ``velocity_window:=1`` gives the ROS 1 value.
 * Commanding (decision D20), off by default: effort command interfaces on all actuated joints;
   parameters ``commanding_enabled``, ``commanded_joints`` and ``max_effort_fraction`` (launch and
   xacro arguments). Efforts of the listed joints go through ROS 1's ``enforceSafety()`` and the
