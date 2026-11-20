@@ -231,11 +231,11 @@ int main(int argc, char **argv)
       {
         std::printf("\n--- t=%.1fs ---------------------------------------------------------------\n",
                     secondsBetween(start, now));
-        std::printf("%-28s %12s %12s %6s %8s %7s\n", "actuator", "encoder", "position", "calib", "V_motor", "halted");
+        std::printf("%-28s %12s %14s %14s %6s %8s %7s\n", "actuator", "encoder", "zero_offset", "position", "calib", "V_motor", "halted");
         for (const auto &kv : ec.hw_->actuators_)
         {
           const auto &s = kv.second->state_;
-          std::printf("%-28s %12d %12.5f %6s %8.2f %7s\n", kv.first.c_str(), s.encoder_count_, s.position_,
+          std::printf("%-28s %12d %14.6f %14.6f %6s %8.2f %7s\n", kv.first.c_str(), s.encoder_count_, s.zero_offset_, s.position_,
                       s.calibration_reading_ ? "on" : "off", s.motor_voltage_, s.halted_ ? "yes" : "no");
         }
       }
