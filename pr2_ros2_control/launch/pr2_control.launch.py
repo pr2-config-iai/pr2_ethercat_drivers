@@ -23,6 +23,9 @@ def generate_launch_description():
             FindExecutable(name='xacro'), ' ',
             PathJoinSubstitution([FindPackageShare('pr2_ros2_control'), 'urdf', 'pr2.urdf.xacro']),
             ' ethercat_interface:=', interface,
+            ' commanding_enabled:=', LaunchConfiguration('commanding_enabled'),
+            ' commanded_joints:="', LaunchConfiguration('commanded_joints'), '"',
+            ' max_effort_fraction:=', LaunchConfiguration('max_effort_fraction'),
         ]),
         value_type=str)
     controllers = PathJoinSubstitution([FindPackageShare('pr2_ros2_control'), 'config', 'controllers.yaml'])
@@ -31,6 +34,12 @@ def generate_launch_description():
         DeclareLaunchArgument('ethercat_interface', default_value='ecat0'),
         DeclareLaunchArgument('rt_prefix', default_value='pr2-rt',
                               description='Launch prefix that grants the realtime capabilities'),
+        DeclareLaunchArgument('commanding_enabled', default_value='false',
+                              description='Accept effort commands (otherwise read-only, motors halted)'),
+        DeclareLaunchArgument('commanded_joints', default_value='',
+                              description='Comma separated joints that may be commanded'),
+        DeclareLaunchArgument('max_effort_fraction', default_value='0.1',
+                              description='Extra limit on commanded efforts, as a fraction of the URDF limit'),
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',

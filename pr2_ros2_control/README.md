@@ -10,13 +10,33 @@ ros2_control for the PR2's EtherCAT motor chain (ROS 2 Jazzy).
 - `launch/pr2_control.launch.py`: robot_state_publisher + `pr2_control_node` +
   joint_state_broadcaster.
 
-**Current state: read-only.** Only state interfaces are exported and the motors are halted on
-every cycle. The component reports an error if any actuator ever reports being enabled. Like ROS 1,
-it sends one motor reset when EtherCAT comes up (with halt still set), which clears the boards'
-latched safety faults and error flags (decision D16). `/pr2_ethercat/reset_motors`
-(`std_srvs/Empty`, as ROS 1) runs the same reset on request, e.g. from `pr2_run_stop_auto_restart`
-after the e-stop is released; `/pr2_ethercat/halt_motors` is a no-op while the motors are always
-halted (decision D18).
+**Read-only by default.** The motors are halted on every cycle and the component reports an error
+if any actuator ever reports being enabled. Like ROS 1, it sends one motor reset when EtherCAT comes
+up (with halt still set), which clears the driver's error flags (decision D16).
+`/pr2_ethercat/reset_motors` (`std_srvs/Empty`, as ROS 1) runs the same reset on request, e.g. from
+`pr2_run_stop_auto_restart` after the e-stop is released (decision D18).
+
+**Commanding (decision D20)** is enabled per joint with launch arguments:
+
+```bash
+ros2 launch pr2_ros2_control pr2_control.launch.py commanding_enabled:=true \
+  commanded_joints:=r_wrist_roll_joint max_effort_fraction:=0.1
+```
+
+- All actuated joints have an `effort` command interface; only the `commanded_joints` (comma
+  separated) use it. Their efforts go through ROS 1's chain: `enforceSafety()` (URDF effort and
+  velocity limits, position soft limits on calibrated joints), then at most `max_effort_fraction`
+  of the URDF effort limit, then the transmissions.
+- Every other joint gets zero effort, also when it shares motors with a commanded joint (the wrist
+  drives roll and flex with the same two motors). Actuators of other transmissions stay disabled;
+  if one ever reports enabled, the component fails.
+- Joints that need calibration and have no offset stored on their board get no effort.
+- The motors start halted and are released by the first `/pr2_ethercat/reset_motors` (dashboard
+  "Reset motors", or the e-stop release through `pr2_run_stop_auto_restart`).
+- `/pr2_ethercat/halt_motors` halts until the next reset. As in ROS 1, the motors are also halted
+  while the loop frequency over 600 ms is below 750 Hz (`min_acceptable_rt_loop_frequency`).
+- `config/controllers.yaml` defines `r_wrist_roll_effort_controller`
+  (`effort_controllers/JointGroupEffortController`, not started by the launch file).
 
 ## Running
 

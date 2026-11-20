@@ -6,6 +6,7 @@
 #include <sched.h>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <set>
 #include <sstream>
 
@@ -31,6 +32,22 @@ bool parseBool(const std::string &value)
   std::transform(v.begin(), v.end(), v.begin(), ::tolower);
   return v == "true" || v == "1" || v == "yes";
 }
+
+// Joint names separated by spaces and/or commas.
+std::set<std::string> parseNames(const std::string &value)
+{
+  std::string v = value;
+  std::replace(v.begin(), v.end(), ',', ' ');
+  std::istringstream ss(v);
+  std::set<std::string> names;
+  for (std::string n; ss >> n;) names.insert(n);
+  return names;
+}
+
+double steadySeconds()
+{
+  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 }  // namespace
 
 Pr2EthercatSystem::Pr2EthercatSystem() = default;
@@ -52,15 +69,29 @@ CallbackReturn Pr2EthercatSystem::on_init(const hardware_interface::HardwareComp
   if (hp.count("allow_unprogrammed")) allow_unprogrammed_ = parseBool(hp.at("allow_unprogrammed"));
   if (hp.count("robot_description_topic")) robot_description_topic_ = hp.at("robot_description_topic");
   if (hp.count("robot_description_timeout")) robot_description_timeout_ = std::stod(hp.at("robot_description_timeout"));
+  if (hp.count("commanding_enabled")) commanding_enabled_ = parseBool(hp.at("commanding_enabled"));
+  if (hp.count("commanded_joints")) commanded_joints_ = parseNames(hp.at("commanded_joints"));
+  if (hp.count("max_effort_fraction")) max_effort_fraction_ = std::stod(hp.at("max_effort_fraction"));
+  if (hp.count("min_acceptable_rt_loop_frequency"))
+    min_acceptable_rt_loop_frequency_ = std::stod(hp.at("min_acceptable_rt_loop_frequency"));
+  if (!(max_effort_fraction_ >= 0.0 && max_effort_fraction_ <= 1.0))
+  {
+    RCLCPP_ERROR(get_logger(), "max_effort_fraction must be within [0, 1], got %f.", max_effort_fraction_);
+    return CallbackReturn::ERROR;
+  }
 
-  // Milestone 1 is read-only: refuse configurations that ask for commands.
+  std::set<std::string> with_effort_command;
   for (const auto &joint : info_.joints)
   {
-    if (!joint.command_interfaces.empty())
+    for (const auto &ci : joint.command_interfaces)
     {
-      RCLCPP_ERROR(get_logger(), "Joint '%s' declares command interfaces, but this version is read-only.",
-                   joint.name.c_str());
-      return CallbackReturn::ERROR;
+      if (ci.name != "effort")
+      {
+        RCLCPP_ERROR(get_logger(), "Joint '%s': unsupported command interface '%s' (only effort).",
+                     joint.name.c_str(), ci.name.c_str());
+        return CallbackReturn::ERROR;
+      }
+      with_effort_command.insert(joint.name);
     }
     for (const auto &si : joint.state_interfaces)
     {
@@ -81,7 +112,28 @@ CallbackReturn Pr2EthercatSystem::on_init(const hardware_interface::HardwareComp
                  robot_description_topic_.c_str(), robot_description_timeout_);
     return CallbackReturn::ERROR;
   }
-  RCLCPP_INFO(get_logger(), "Read-only PR2 EtherCAT system on %s, %zu joints.", interface_.c_str(), info_.joints.size());
+  for (const auto &name : commanded_joints_)
+  {
+    if (!with_effort_command.count(name))
+    {
+      RCLCPP_ERROR(get_logger(), "commanded_joints: '%s' has no effort command interface in <ros2_control>.",
+                   name.c_str());
+      return CallbackReturn::ERROR;
+    }
+  }
+  if (commanding_enabled_)
+  {
+    std::ostringstream ss;
+    for (const auto &n : commanded_joints_) ss << " " << n;
+    RCLCPP_WARN(get_logger(), "PR2 EtherCAT system on %s, %zu joints. COMMANDING ENABLED for:%s "
+                "(efforts limited to %.0f%% of the URDF limit; motors halted until the first motor reset).",
+                interface_.c_str(), info_.joints.size(), commanded_joints_.empty() ? " (none)" : ss.str().c_str(),
+                100.0 * max_effort_fraction_);
+  }
+  else
+  {
+    RCLCPP_INFO(get_logger(), "Read-only PR2 EtherCAT system on %s, %zu joints.", interface_.c_str(), info_.joints.size());
+  }
   return CallbackReturn::SUCCESS;
 }
 
@@ -201,6 +253,11 @@ CallbackReturn Pr2EthercatSystem::on_configure(const rclcpp_lifecycle::State &)
       else if (si.name == "velocity") h.velocity = handle;
       else if (si.name == "effort") h.effort = handle;
     }
+    if (!joint.command_interfaces.empty())
+    {
+      h.effort_command = get_command_interface_handle(joint.name + "/effort");
+    }
+    h.commanded = commanding_enabled_ && commanded_joints_.count(joint.name) > 0;
     handles_.push_back(h);
   }
   if (!unknown.empty())
@@ -223,6 +280,11 @@ CallbackReturn Pr2EthercatSystem::on_configure(const rclcpp_lifecycle::State &)
     RCLCPP_WARN(get_logger(), "Joints with a transmission that are not declared in <ros2_control> (not exported):%s",
                 not_exported.str().c_str());
   }
+  if (!configureCommanding())
+  {
+    shutdownHardware();
+    return CallbackReturn::ERROR;
+  }
 
   // One halted exchange so the state interfaces hold real values before anything reads them.
   // Like ROS 1 pr2_ethercat's first cycle after init: one motor reset. Two cycles later it clears
@@ -237,21 +299,76 @@ CallbackReturn Pr2EthercatSystem::on_configure(const rclcpp_lifecycle::State &)
     return CallbackReturn::ERROR;
   }
 
-  // Same reset as above, on request (dashboard "Reset motors"), e.g. after the breakers were
-  // enabled. Motors stay halted: read() passes halt on every cycle.
+  // As ROS 1 pr2_ethercat: ~/reset_motors clears latched board faults and releases a halt (the
+  // dashboard, or pr2_run_stop_auto_restart after the e-stop is released); ~/halt_motors halts
+  // until the next reset. Read-only, the motors stay halted after a reset too.
   using Empty = std_srvs::srv::Empty;
   reset_motors_service_ = get_node()->create_service<Empty>(
     "~/reset_motors",
     [this](const std::shared_ptr<Empty::Request>, std::shared_ptr<Empty::Response>) {
-      RCLCPP_INFO(get_logger(), "Motor reset requested: clears latched board faults, motors stay halted.");
+      RCLCPP_INFO(get_logger(), commanding_enabled_ ? "Motor reset requested: clears latched board faults and the halt."
+                                                    : "Motor reset requested: clears latched board faults, motors stay halted.");
       reset_requested_ = true;
     });
   halt_motors_service_ = get_node()->create_service<Empty>(
     "~/halt_motors",
     [this](const std::shared_ptr<Empty::Request>, std::shared_ptr<Empty::Response>) {
-      RCLCPP_INFO(get_logger(), "Halt requested: motors are always halted in this version.");
+      RCLCPP_INFO(get_logger(), "Halt requested: motors halted until the next motor reset.");
+      halt_requested_ = true;
     });
   return CallbackReturn::SUCCESS;
+}
+
+bool Pr2EthercatSystem::configureCommanding()
+{
+  commanded_actuators_.clear();
+  joint_state_commanded_.assign(state_->joint_states_.size(), 0);
+  if (!commanding_enabled_)
+  {
+    return true;
+  }
+  for (size_t j = 0; j < state_->joint_states_.size(); ++j)
+  {
+    const auto &js = state_->joint_states_[j];
+    joint_state_commanded_[j] = js.joint_ && commanded_joints_.count(js.joint_->name) ? 1 : 0;
+  }
+  // Every transmission that drives a commanded joint: its actuators may be enabled. A transmission
+  // can drive more joints than the listed one (the wrist drives roll and flex with two motors);
+  // those joints get zero effort in write().
+  std::set<std::string> found;
+  for (size_t i = 0; i < robot_->transmissions_.size(); ++i)
+  {
+    bool commanded = false;
+    for (const auto *js : state_->transmissions_out_[i])
+    {
+      if (js->joint_ && commanded_joints_.count(js->joint_->name))
+      {
+        commanded = true;
+        found.insert(js->joint_->name);
+      }
+    }
+    if (!commanded)
+    {
+      continue;
+    }
+    std::ostringstream ss;
+    for (const auto *a : state_->transmissions_in_[i])
+    {
+      commanded_actuators_.insert(a);
+      ss << " " << a->name_;
+    }
+    RCLCPP_WARN(get_logger(), "Transmission %s may be enabled (actuators:%s).",
+                robot_->transmissions_[i]->name_.c_str(), ss.str().c_str());
+  }
+  for (const auto &name : commanded_joints_)
+  {
+    if (!found.count(name))
+    {
+      RCLCPP_ERROR(get_logger(), "commanded_joints: '%s' is not driven by any transmission.", name.c_str());
+      return false;
+    }
+  }
+  return true;
 }
 
 void Pr2EthercatSystem::reportCalibration()
@@ -260,6 +377,7 @@ void Pr2EthercatSystem::reportCalibration()
   // non-zero zero offset (stored on the board). Apply the same rule to every transmission ROS 1
   // calibrates: those with a URDF calibration edge, and the grippers.
   std::vector<std::string> missing;
+  std::set<const pr2_mechanism_model::JointState *> needs;
   size_t calibrated = 0;
   for (size_t i = 0; i < robot_->transmissions_.size(); ++i)
   {
@@ -277,6 +395,7 @@ void Pr2EthercatSystem::reportCalibration()
     {
       continue;
     }
+    needs.insert(state_->transmissions_out_[i].begin(), state_->transmissions_out_[i].end());
     bool ok = true;
     for (auto *a : state_->transmissions_in_[i])
     {
@@ -293,6 +412,14 @@ void Pr2EthercatSystem::reportCalibration()
     else
     {
       missing.push_back(t->joint_names_.empty() ? t->name_ : t->joint_names_[0]);
+    }
+  }
+  for (auto &h : handles_)
+  {
+    h.needs_calibration = needs.count(h.joint) > 0;
+    if (h.commanded && h.needs_calibration && !h.joint->calibrated_)
+    {
+      RCLCPP_ERROR(get_logger(), "Commanded joint %s is not calibrated: it gets no effort.", h.joint->joint_->name.c_str());
     }
   }
   RCLCPP_INFO(get_logger(), "Calibration: %zu transmissions use the offsets stored on the motor boards.", calibrated);
@@ -312,8 +439,10 @@ CallbackReturn Pr2EthercatSystem::on_activate(const rclcpp_lifecycle::State &)
   }
   reportCalibration();
   fault_reported_ = false;
+  monitor_started_ = false;  // lifecycle transitions pause read(); don't count that as a slow loop
   startDiagnosticsThread();
-  RCLCPP_INFO(get_logger(), "Active (read-only: motors stay halted).");
+  RCLCPP_INFO(get_logger(), commanding_enabled_ ? "Active (commanding enabled; halted until a motor reset)."
+                                                : "Active (read-only: motors stay halted).");
   return CallbackReturn::SUCCESS;
 }
 
@@ -403,10 +532,22 @@ return_type Pr2EthercatSystem::read(const rclcpp::Time &, const rclcpp::Duration
     return return_type::OK;
   }
 
-  // One EtherCAT exchange: sends the commands from the last write() (halted) and receives status.
-  const bool reset = reset_on_next_read_ || reset_requested_.exchange(false);
+  // One EtherCAT exchange: sends the commands from the last write() and receives status.
+  // EthercatHardware keeps a halt until the next reset (as ROS 1), so halt only has to be passed
+  // once; read-only it is passed on every cycle so that a reset does not release the motors.
+  const bool requested_reset = reset_requested_.exchange(false);
+  const bool reset = reset_on_next_read_ || requested_reset;
   reset_on_next_read_ = false;
-  ec_->update(reset, true /*halt*/);
+  if (requested_reset)
+  {
+    released_by_reset_ = true;
+  }
+  bool halt = !commanding_enabled_ || !released_by_reset_ || halt_requested_.exchange(false);
+  if (loopTooSlow())
+  {
+    halt = true;
+  }
+  ec_->update(reset, halt);
   state_->propagateActuatorPositionToJointPosition();
 
   for (const auto &h : handles_)
@@ -416,13 +557,14 @@ return_type Pr2EthercatSystem::read(const rclcpp::Time &, const rclcpp::Duration
     if (h.effort) std::ignore = set_state(h.effort, h.joint->measured_effort_, false);
   }
 
+  // Only the actuators of commanded transmissions may ever be enabled.
   for (const auto &kv : ec_->hw_->actuators_)
   {
-    if (kv.second->state_.is_enabled_)
+    if (kv.second->state_.is_enabled_ && !commanded_actuators_.count(kv.second))
     {
       if (!fault_reported_)
       {
-        RCLCPP_FATAL(get_logger(), "Actuator %s reports enabled in read-only mode.", kv.first.c_str());
+        RCLCPP_FATAL(get_logger(), "Actuator %s reports enabled, but it is not allowed to be.", kv.first.c_str());
         fault_reported_ = true;
       }
       return return_type::ERROR;
@@ -431,17 +573,92 @@ return_type Pr2EthercatSystem::read(const rclcpp::Time &, const rclcpp::Duration
   return return_type::OK;
 }
 
+bool Pr2EthercatSystem::loopTooSlow()
+{
+  // ROS 1 pr2_ethercat: "Realtime loop should be running at least 750Hz. Calculate realtime loop
+  // frequency every 200 msec. Halt motors if average frequency over last 600 msec is less than
+  // 750Hz."
+  constexpr double monitor_period = 0.6 / 3;
+  const double now = steadySeconds();
+  if (!monitor_started_)
+  {
+    monitor_started_ = true;
+    monitor_last_time_ = now;
+    monitor_cycles_ = 0;
+    for (double &h : monitor_history_) h = 1000.0;
+    return loop_too_slow_ = false;
+  }
+  ++monitor_cycles_;
+  if (now - monitor_last_time_ > monitor_period)
+  {
+    monitor_index_ = (monitor_index_ + 1) % 3;
+    monitor_history_[monitor_index_] = double(monitor_cycles_) / monitor_period;
+    const double average = (monitor_history_[0] + monitor_history_[1] + monitor_history_[2]) / 3.0;
+    const bool too_slow = average < min_acceptable_rt_loop_frequency_;
+    if (too_slow && !loop_too_slow_ && commanding_enabled_)
+    {
+      RCLCPP_ERROR(get_logger(), "Halting motors: realtime loop only ran at %.1f Hz (minimum %.1f Hz).", average,
+                   min_acceptable_rt_loop_frequency_);
+    }
+    loop_too_slow_ = too_slow;
+    monitor_cycles_ = 0;
+    monitor_last_time_ = now;
+  }
+  return loop_too_slow_;
+}
+
 return_type Pr2EthercatSystem::write(const rclcpp::Time &, const rclcpp::Duration &)
 {
   if (!ec_)
   {
     return return_type::OK;
   }
-  // Read-only: never command anything (update() is also called with halt=true).
+  if (commanding_enabled_ && state_)
+  {
+    // ROS 1 pr2_controller_manager::update: zero all efforts, apply the controllers' commands,
+    // enforce the joint limits, propagate through the transmissions (which enables the actuators).
+    state_->zeroCommands();
+    for (const auto &h : handles_)
+    {
+      if (!h.commanded || !h.effort_command || (h.needs_calibration && !h.joint->calibrated_))
+      {
+        continue;
+      }
+      double effort = 0.0;
+      if (get_command(h.effort_command, effort, false) && std::isfinite(effort))
+      {
+        h.joint->commanded_effort_ = effort;
+      }
+    }
+    state_->enforceSafety();
+    for (const auto &h : handles_)
+    {
+      if (!h.commanded)
+      {
+        continue;
+      }
+      const double limit = (h.joint->joint_ && h.joint->joint_->limits) ? h.joint->joint_->limits->effort : 0.0;
+      const double max = max_effort_fraction_ * limit;
+      h.joint->commanded_effort_ = std::clamp(h.joint->commanded_effort_, -max, max);
+    }
+    // Joints not on the list get exactly zero, also where enforceSafety asked for an effort.
+    for (size_t j = 0; j < state_->joint_states_.size(); ++j)
+    {
+      if (!joint_state_commanded_[j])
+      {
+        state_->joint_states_[j].commanded_effort_ = 0.0;
+      }
+    }
+    state_->propagateJointEffortToActuatorEffort();
+  }
+  // Every actuator outside the commanded transmissions: disabled, zero effort.
   for (const auto &kv : ec_->hw_->actuators_)
   {
-    kv.second->command_.enable_ = false;
-    kv.second->command_.effort_ = 0.0;
+    if (!commanding_enabled_ || !commanded_actuators_.count(kv.second))
+    {
+      kv.second->command_.enable_ = false;
+      kv.second->command_.effort_ = 0.0;
+    }
   }
   return return_type::OK;
 }

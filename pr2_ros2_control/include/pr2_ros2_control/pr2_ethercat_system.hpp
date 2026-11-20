@@ -7,9 +7,14 @@
  *     including the wrist differential and the gripper linkage (which publishes the passive
  *     finger joints too).
  *
- * Milestone 1 (this version) is read-only: the motors are halted on every cycle, only state
- * interfaces (position, velocity, effort) are exported, and the component reports an error if any
- * actuator ever reports being enabled.
+ * Read-only by default: the motors are halted on every cycle and the component reports an error if
+ * any actuator ever reports being enabled. With commanding_enabled, joints in commanded_joints take
+ * effort commands, processed as ROS 1 pr2_controller_manager did (zero all efforts, apply the
+ * commands, RobotState::enforceSafety, propagate through the transmissions); every other joint gets
+ * zero effort and the actuators of other transmissions stay disabled (decision D20). Motors are
+ * halted, as ROS 1 pr2_ethercat did, on ~/halt_motors and while the loop runs below
+ * min_acceptable_rt_loop_frequency, until ~/reset_motors; they also start halted until the first
+ * reset.
  *
  * Calibration: the zero offsets that ROS 1's calibration controllers stored on the motor boards
  * are read back at startup (like ROS 1 does), and each calibrated joint's reference position is
@@ -38,6 +43,11 @@
 #include "ethercat_hardware/interface_lock.h"
 
 class EthercatHardware;
+
+namespace pr2_hardware_interface
+{
+class Actuator;
+}  // namespace pr2_hardware_interface
 
 namespace pr2_mechanism_model
 {
@@ -71,9 +81,14 @@ private:
   {
     pr2_mechanism_model::JointState *joint = nullptr;
     hardware_interface::StateInterface::SharedPtr position, velocity, effort;
+    hardware_interface::CommandInterface::SharedPtr effort_command;
+    bool commanded = false;          // listed in commanded_joints
+    bool needs_calibration = false;  // its transmission is calibrated by ROS 1 (see reportCalibration)
   };
 
   bool fetchRobotDescription(std::string &urdf) const;
+  bool configureCommanding();
+  bool loopTooSlow();
   void shutdownHardware();
   void reportCalibration();
 
@@ -82,6 +97,10 @@ private:
   bool allow_unprogrammed_ = false;
   std::string robot_description_topic_ = "/robot_description";
   double robot_description_timeout_ = 10.0;
+  bool commanding_enabled_ = false;
+  std::set<std::string> commanded_joints_;
+  double max_effort_fraction_ = 0.1;
+  double min_acceptable_rt_loop_frequency_ = 750.0;
 
   std::string urdf_;
   ethercat_hardware::InterfaceLock lock_;
@@ -106,6 +125,21 @@ private:
   std::atomic<bool> reset_requested_{false};
   rclcpp::Service<std_srvs::srv::Empty>::SharedPtr reset_motors_service_;
   rclcpp::Service<std_srvs::srv::Empty>::SharedPtr halt_motors_service_;
+  std::atomic<bool> halt_requested_{false};
+  bool released_by_reset_ = false;  // commanding: motors stay halted until the first reset request
+
+  // Actuators of the transmissions that drive a commanded joint; all others must stay disabled.
+  std::set<const pr2_hardware_interface::Actuator *> commanded_actuators_;
+  std::vector<char> joint_state_commanded_;  // per RobotState::joint_states_ entry
+
+  // ROS 1 pr2_ethercat's loop frequency monitor: cycles counted over 200 ms, averaged over the last
+  // three counts; below the minimum the motors are halted (until a reset).
+  bool monitor_started_ = false;
+  double monitor_last_time_ = 0.0;
+  unsigned monitor_cycles_ = 0;
+  double monitor_history_[3] = {1000.0, 1000.0, 1000.0};
+  unsigned monitor_index_ = 0;
+  bool loop_too_slow_ = false;
   std::set<std::string> gripper_transmissions_;  // names, from the URDF
 };
 

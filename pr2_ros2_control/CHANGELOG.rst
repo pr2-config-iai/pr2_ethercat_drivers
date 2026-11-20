@@ -4,6 +4,12 @@ Changelog for package pr2_ros2_control
 
 2.0.0 (unreleased)
 ------------------
+* Commanding (decision D20), off by default: effort command interfaces on all actuated joints;
+  parameters ``commanding_enabled``, ``commanded_joints`` and ``max_effort_fraction`` (launch and
+  xacro arguments). Efforts of the listed joints go through ROS 1's ``enforceSafety()`` and the
+  transmissions; all other joints get zero effort and the actuators of other transmissions stay
+  disabled. ``~/halt_motors`` halts until ``~/reset_motors``; motors start halted until the first
+  reset; ROS 1's loop frequency monitor (below 750 Hz over 600 ms) halts them too.
 * ``pr2_control_node`` publishes ROS 1's "Realtime Control Loop" diagnostics (EtherCAT, controller
   and loop times, jitter, overruns, loop frequency over 600 ms; same keys and 30 s overrun warning)
   once a second. The low-frequency motor halt of ROS 1 (below ``min_acceptable_rt_loop_frequency``,

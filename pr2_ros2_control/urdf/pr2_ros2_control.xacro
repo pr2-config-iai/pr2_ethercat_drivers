@@ -7,7 +7,9 @@
   joints). The transmissions themselves stay in the robot description in their ROS 1 form; the
   hardware component reads them from /robot_description.
 
-  Milestone 1 is read-only: state interfaces only.
+  Every joint has position/velocity/effort state interfaces; the actuated ones (all but the passive
+  joints below, which have no <safety_controller> in the URDF) also an effort command interface.
+  Commands are only used with commanding_enabled, for the joints in commanded_joints (decision D20).
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
@@ -27,9 +29,19 @@
     'r_gripper_joint', 'r_gripper_motor_screw_joint', 'r_gripper_motor_slider_joint',
     'r_gripper_l_finger_joint', 'r_gripper_r_finger_joint', 'r_gripper_l_finger_tip_joint', 'r_gripper_r_finger_tip_joint']}"/>
 
+  <xacro:property name="pr2_ros2_control_passive_joints" value="${[
+    'torso_lift_motor_screw_joint',
+    'l_gripper_motor_screw_joint', 'l_gripper_motor_slider_joint',
+    'l_gripper_l_finger_joint', 'l_gripper_r_finger_joint', 'l_gripper_l_finger_tip_joint', 'l_gripper_r_finger_tip_joint',
+    'r_gripper_motor_screw_joint', 'r_gripper_motor_slider_joint',
+    'r_gripper_l_finger_joint', 'r_gripper_r_finger_joint', 'r_gripper_l_finger_tip_joint', 'r_gripper_r_finger_tip_joint']}"/>
+
   <xacro:macro name="pr2_ros2_control_state_joints" params="joints">
     <xacro:if value="${joints}">
       <joint name="${joints[0]}">
+        <xacro:unless value="${joints[0] in pr2_ros2_control_passive_joints}">
+          <command_interface name="effort"/>
+        </xacro:unless>
         <state_interface name="position"/>
         <state_interface name="velocity"/>
         <state_interface name="effort"/>
@@ -38,13 +50,17 @@
     </xacro:if>
   </xacro:macro>
 
-  <xacro:macro name="pr2_ros2_control" params="interface:=ecat0 allow_unprogrammed:=false">
+  <xacro:macro name="pr2_ros2_control"
+               params="interface:=ecat0 allow_unprogrammed:=false commanding_enabled:=false commanded_joints:='' max_effort_fraction:=0.1">
     <ros2_control name="pr2_ethercat" type="system">
       <hardware>
         <plugin>pr2_ros2_control/Pr2EthercatSystem</plugin>
         <param name="interface">${interface}</param>
         <param name="allow_unprogrammed">${allow_unprogrammed}</param>
         <param name="robot_description_topic">/robot_description</param>
+        <param name="commanding_enabled">${commanding_enabled}</param>
+        <param name="commanded_joints">${commanded_joints}</param>
+        <param name="max_effort_fraction">${max_effort_fraction}</param>
       </hardware>
       <xacro:pr2_ros2_control_state_joints joints="${pr2_ros2_control_joints}"/>
     </ros2_control>
