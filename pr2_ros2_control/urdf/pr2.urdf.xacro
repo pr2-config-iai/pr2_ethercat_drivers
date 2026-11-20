@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!-- The IAI PR2 description plus the ros2_control block for the real robot. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="pr2">
+  <xacro:arg name="ethercat_interface" default="ecat0"/>
+  <xacro:include filename="$(find iai_pr2_description)/robots/pr2_with_ft2_cableguide.xacro"/>
+  <xacro:include filename="$(find pr2_ros2_control)/urdf/pr2_ros2_control.xacro"/>
+  <xacro:pr2_ros2_control interface="$(arg ethercat_interface)"/>
+</robot>

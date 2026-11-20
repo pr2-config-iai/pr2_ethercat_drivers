@@ -1,0 +1,6 @@
+<library path="pr2_ros2_control">
+  <class name="pr2_ros2_control/Pr2EthercatSystem" type="pr2_ros2_control::Pr2EthercatSystem"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>PR2 EtherCAT motor chain (ethercat_hardware + PR2 transmissions). Read-only for now.</description>
+  </class>
+</library>
