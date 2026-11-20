@@ -4,6 +4,9 @@ Changelog for package ethercat_hardware
 
 2.0.0 (unreleased)
 ------------------
+* ``motors_halted`` is published as ``~/motors_halted`` (``/pr2_ethercat/motors_halted`` under
+  ros2_control), the ROS 1 name that ``pr2_dashboard_aggregator`` subscribes to. A plain relative
+  name resolves to the node's namespace in ROS 2, which gave ``/motors_halted``.
 * The device drivers (WG0X, WG014, WG021, EK1122) moved from ``libethercat_hardware`` into their own
   plugin library ``libethercat_hardware_devices``, which nothing links. Otherwise class_loader
   assigns their factories to the loader of whichever plugin pulls in the core library (e.g. the
