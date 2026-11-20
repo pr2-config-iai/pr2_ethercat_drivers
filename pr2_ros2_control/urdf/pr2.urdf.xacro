@@ -6,10 +6,12 @@
   <xacro:arg name="commanding_enabled" default="false"/>
   <xacro:arg name="commanded_joints" default=""/>
   <xacro:arg name="max_effort_fraction" default="0.1"/>
+  <xacro:arg name="min_acceptable_rt_loop_frequency" default="750.0"/>
   <xacro:include filename="$(find iai_pr2_description)/robots/pr2_with_ft2_cableguide.xacro"/>
   <xacro:include filename="$(find pr2_ros2_control)/urdf/pr2_ros2_control.xacro"/>
   <xacro:pr2_ros2_control interface="$(arg ethercat_interface)"
                           commanding_enabled="$(arg commanding_enabled)"
                           commanded_joints="$(arg commanded_joints)"
-                          max_effort_fraction="$(arg max_effort_fraction)"/>
+                          max_effort_fraction="$(arg max_effort_fraction)"
+                          min_acceptable_rt_loop_frequency="$(arg min_acceptable_rt_loop_frequency)"/>
 </robot>

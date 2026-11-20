@@ -15,6 +15,7 @@
 #include <std_msgs/msg/string.hpp>
 
 #include "ethercat_hardware/ethercat_hardware.h"
+#include "pr2_ros2_control/effort_chain.hpp"
 #include "pr2_mechanism_model/robot.h"
 #include "pr2_mechanism_model/transmission.h"
 
@@ -677,35 +678,15 @@ return_type Pr2EthercatSystem::write(const rclcpp::Time &, const rclcpp::Duratio
         h.joint->commanded_effort_ = effort;
       }
     }
-    state_->enforceSafety();
-    for (const auto &h : handles_)
-    {
-      if (!h.commanded)
-      {
-        continue;
-      }
-      const double limit = (h.joint->joint_ && h.joint->joint_->limits) ? h.joint->joint_->limits->effort : 0.0;
-      const double max = max_effort_fraction_ * limit;
-      h.joint->commanded_effort_ = std::clamp(h.joint->commanded_effort_, -max, max);
-    }
-    // Joints not on the list get exactly zero, also where enforceSafety asked for an effort.
-    for (size_t j = 0; j < state_->joint_states_.size(); ++j)
-    {
-      if (!joint_state_commanded_[j])
-      {
-        state_->joint_states_[j].commanded_effort_ = 0.0;
-      }
-    }
-    state_->propagateJointEffortToActuatorEffort();
+    finishEffortCommands(*state_, joint_state_commanded_, max_effort_fraction_, commanded_actuators_,
+                         ec_->hw_->actuators_);
+    return return_type::OK;
   }
-  // Every actuator outside the commanded transmissions: disabled, zero effort.
+  // Read-only: every actuator disabled, zero effort.
   for (const auto &kv : ec_->hw_->actuators_)
   {
-    if (!commanding_enabled_ || !commanded_actuators_.count(kv.second))
-    {
-      kv.second->command_.enable_ = false;
-      kv.second->command_.effort_ = 0.0;
-    }
+    kv.second->command_.enable_ = false;
+    kv.second->command_.effort_ = 0.0;
   }
   return return_type::OK;
 }

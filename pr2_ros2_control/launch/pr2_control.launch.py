@@ -26,6 +26,7 @@ def generate_launch_description():
             ' commanding_enabled:=', LaunchConfiguration('commanding_enabled'),
             ' commanded_joints:="', LaunchConfiguration('commanded_joints'), '"',
             ' max_effort_fraction:=', LaunchConfiguration('max_effort_fraction'),
+            ' min_acceptable_rt_loop_frequency:=', LaunchConfiguration('min_acceptable_rt_loop_frequency'),
         ]),
         value_type=str)
     controllers = PathJoinSubstitution([FindPackageShare('pr2_ros2_control'), 'config', 'controllers.yaml'])
@@ -40,6 +41,8 @@ def generate_launch_description():
                               description='Comma separated joints that may be commanded'),
         DeclareLaunchArgument('max_effort_fraction', default_value='0.1',
                               description='Extra limit on commanded efforts, as a fraction of the URDF limit'),
+        DeclareLaunchArgument('min_acceptable_rt_loop_frequency', default_value='750.0',
+                              description='Motors are halted while the loop runs slower (ROS 1: 750 Hz)'),
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',

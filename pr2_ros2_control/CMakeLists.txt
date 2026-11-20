@@ -26,7 +26,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(TINYXML REQUIRED IMPORTED_TARGET tinyxml)
 
 # The hardware component plugin
-add_library(${PROJECT_NAME} SHARED src/pr2_ethercat_system.cpp)
+add_library(${PROJECT_NAME} SHARED src/pr2_ethercat_system.cpp src/effort_chain.cpp)
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
@@ -59,6 +59,21 @@ install(TARGETS pr2_control_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
 install(DIRECTORY config launch urdf DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY tools DESTINATION share/${PROJECT_NAME} USE_SOURCE_PERMISSIONS)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(iai_pr2_description REQUIRED)
+  find_program(XACRO xacro REQUIRED)
+  # The robot's description, transmissions included (the <ros2_control> block is not needed).
+  set(TEST_URDF ${CMAKE_CURRENT_BINARY_DIR}/pr2_test.urdf)
+  add_custom_command(OUTPUT ${TEST_URDF}
+    COMMAND ${XACRO} ${iai_pr2_description_DIR}/../robots/pr2_with_ft2_cableguide.xacro -o ${TEST_URDF})
+  add_custom_target(pr2_test_urdf ALL DEPENDS ${TEST_URDF})
+  ament_add_gtest(test_effort_chain test/test_effort_chain.cpp)
+  add_dependencies(test_effort_chain pr2_test_urdf)
+  target_compile_definitions(test_effort_chain PRIVATE TEST_URDF="${TEST_URDF}")
+  target_link_libraries(test_effort_chain ${PROJECT_NAME} PkgConfig::TINYXML)
+endif()
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(hardware_interface pluginlib rclcpp rclcpp_lifecycle std_msgs ethercat_hardware pr2_mechanism_model)
