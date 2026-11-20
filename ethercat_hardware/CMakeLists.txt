@@ -39,12 +39,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_typesupport_cpp)
 
 # Device drivers (WG05, WG06, WG021, WG014, EK1122) are pluginlib plugins living in this library.
+# Core library: EthercatHardware, the EthercatDevice base class, EtherCAT communication.
 add_library(${PROJECT_NAME}_lib SHARED
   src/ethercat_hardware.cpp src/ethercat_com.cpp src/interface_lock.cpp
-  src/ethercat_device.cpp src/wg0x.cpp src/wg05.cpp src/wg06.cpp src/wg021.cpp
-  src/ek1122.cpp src/wg014.cpp src/motor_model.cpp
-  src/ethernet_interface_info.cpp src/motor_heating_model.cpp
-  src/wg_soft_processor.cpp src/wg_util.cpp src/wg_mailbox.cpp src/wg_eeprom.cpp
+  src/ethercat_device.cpp src/ethernet_interface_info.cpp
 )
 # Keep the ROS 1 library name (libethercat_hardware.so); the rosidl target already uses
 # the plain project name.
@@ -71,6 +69,23 @@ target_link_libraries(${PROJECT_NAME}_lib PRIVATE
 # Fail at link time instead of at plugin load time if a dependency is missing.
 target_link_options(${PROJECT_NAME}_lib PRIVATE -Wl,--no-undefined)
 
+# The device drivers (WG0X motor boards, WG014, WG021, EK1122) are pluginlib plugins and live in
+# their own library that nothing links to (ROS 2 port; ROS 1 had them in libethercat_hardware).
+# class_loader attributes a plugin library's factories to whichever loader is active when the
+# library gets loaded. If the drivers sat in the core library, loading a plugin that links the core
+# library (e.g. pr2_ros2_control's hardware component) would load them under the wrong loader, and
+# EthercatHardware's device loader would then find "no factory" for WG014 and friends.
+add_library(${PROJECT_NAME}_devices SHARED
+  src/wg0x.cpp src/wg05.cpp src/wg06.cpp src/wg021.cpp src/ek1122.cpp src/wg014.cpp
+  src/motor_model.cpp src/motor_heating_model.cpp
+  src/wg_soft_processor.cpp src/wg_util.cpp src/wg_mailbox.cpp src/wg_eeprom.cpp
+)
+target_link_libraries(${PROJECT_NAME}_devices PUBLIC ${PROJECT_NAME}_lib)
+target_link_libraries(${PROJECT_NAME}_devices PRIVATE
+  Boost::regex Boost::filesystem
+  PkgConfig::TINYXML)
+target_link_options(${PROJECT_NAME}_devices PRIVATE -Wl,--no-undefined)
+
 pluginlib_export_plugin_description_file(${PROJECT_NAME} ethercat_device_plugin.xml)
 
 # TODO(ros2 port): motorconf (writes motor configuration to board EEPROMs) is not ported yet.
@@ -78,27 +93,21 @@ pluginlib_export_plugin_description_file(${PROJECT_NAME} ethercat_device_plugin.
 # Read-only bring-up check: initializes the chain and reads encoders with motors halted.
 add_executable(read_only_check src/tools/read_only_check.cpp)
 target_link_libraries(read_only_check ${PROJECT_NAME}_lib)
-# The binary gets file capabilities (setcap) for raw sockets and realtime priority. Such binaries
-# run in secure mode, where the loader ignores LD_LIBRARY_PATH, so bake absolute library paths in
-# (ROS 1 did the same with pr2_enable_rpath). DT_RPATH (not RUNPATH) so it also covers
-# transitive dependencies.
-set_target_properties(read_only_check PROPERTIES
-  INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib"
-  INSTALL_RPATH_USE_LINK_PATH TRUE)
-target_link_options(read_only_check PRIVATE -Wl,--disable-new-dtags)
+# Needs a raw socket, mlockall and SCHED_FIFO: run it through pr2-rt (pr2_ros2_control/tools),
+#   ros2 run --prefix pr2-rt ethercat_hardware read_only_check -i ecat0
 install(TARGETS read_only_check DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
-install(TARGETS ${PROJECT_NAME}_lib EXPORT export_${PROJECT_NAME}
+install(TARGETS ${PROJECT_NAME}_lib ${PROJECT_NAME}_devices EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
 install(FILES actuators.conf actuators_alpha.conf DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(wg0x_test test/wg0x_test.cpp)
-  target_link_libraries(wg0x_test ${PROJECT_NAME}_lib)
+  target_link_libraries(wg0x_test ${PROJECT_NAME}_devices)
   ament_add_gtest(motor_heating_model_test test/motor_heating_model_test.cpp)
-  target_link_libraries(motor_heating_model_test ${PROJECT_NAME}_lib)
+  target_link_libraries(motor_heating_model_test ${PROJECT_NAME}_devices)
 endif()
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)

@@ -4,6 +4,10 @@ Changelog for package ethercat_hardware
 
 2.0.0 (unreleased)
 ------------------
+* The device drivers (WG0X, WG014, WG021, EK1122) moved from ``libethercat_hardware`` into their own
+  plugin library ``libethercat_hardware_devices``, which nothing links. Otherwise class_loader
+  assigns their factories to the loader of whichever plugin pulls in the core library (e.g. the
+  ros2_control hardware component), and the device loader finds "no factory" for them.
 * Port to ROS 2 (Jazzy). The realtime code paths are unchanged; only the ROS interface moved.
 * ``EthercatHardware`` takes an ``rclcpp::Node::SharedPtr``; devices get it via
   ``EthercatDevice::setNode()`` before ``construct()``.
@@ -33,8 +37,9 @@ Changelog for package ethercat_hardware
   ``advertiseService`` calls failed); ROS 2 would otherwise create competing servers.
 * New ``read_only_check`` tool: initializes the chain and reads encoders with motors halted.
   Takes the same ``/var/tmp/run/EtherCAT_<if>.pid`` lock as ROS 1 ``pr2_ethercat`` (the host's
-  copy inside distrobox). Needs ``setcap cap_net_raw,cap_ipc_lock,cap_sys_nice+ep`` after
-  every build; it carries an absolute RPATH because such binaries ignore LD_LIBRARY_PATH.
+  copy inside distrobox). Run it through ``pr2-rt`` (from ``pr2_ros2_control/tools``), which grants
+  the raw-socket, mlockall and SCHED_FIFO capabilities:
+  ``ros2 run --prefix pr2-rt ethercat_hardware read_only_check -i ecat0``.
 * Fixes found while porting: ``num_ethercat_devices_`` was shadowed by a local in ``init()``;
   device destructors dereferenced a null slave handler when ``construct()`` never ran;
   tinyxml was never linked (only worked through catkin's transitive libraries).

@@ -21,6 +21,7 @@
 #define PR2_ROS2_CONTROL__PR2_ETHERCAT_SYSTEM_HPP_
 
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -84,6 +85,7 @@ private:
   std::vector<JointHandles> handles_;  // in the order of info_.joints
   bool ethercat_initialized_once_ = false;
   bool fault_reported_ = false;
+  std::set<std::string> gripper_transmissions_;  // names, from the URDF
 };
 
 }  // namespace pr2_ros2_control

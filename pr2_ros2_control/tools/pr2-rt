@@ -1,0 +1,16 @@
+#!/bin/sh
+# pr2-rt <program> [args...]
+#
+# Run a program with the PR2 realtime capabilities (raw socket, mlockall, SCHED_FIFO) via the
+# setuid helper pr2-rt-exec. Resolves the program through PATH and keeps LD_LIBRARY_PATH, which
+# glibc would otherwise strip on the way through the setuid helper.
+#
+#   ros2 run --prefix pr2-rt ethercat_hardware read_only_check -i ecat0
+#   Node(..., prefix='pr2-rt')            # in a launch file
+if [ $# -lt 1 ]; then
+  echo "usage: pr2-rt <program> [args...]" >&2
+  exit 2
+fi
+prog=$(command -v "$1") || { echo "pr2-rt: $1: not found" >&2; exit 127; }
+shift
+PR2_RT_EXEC_LD_LIBRARY_PATH="${LD_LIBRARY_PATH-}" exec /usr/local/bin/pr2-rt-exec "$(readlink -f "$prog")" "$@"

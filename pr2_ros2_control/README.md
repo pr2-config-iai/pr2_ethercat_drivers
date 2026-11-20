@@ -15,19 +15,35 @@ every cycle. The component reports an error if any actuator ever reports being e
 
 ## Running
 
+Once per machine or container, install the realtime launcher (needs `sudo`):
+
+```bash
+src/pr2_ethercat_drivers/pr2_ros2_control/tools/install_pr2_rt.sh
+```
+
+Then:
+
 ```bash
 colcon build --packages-up-to pr2_ros2_control
 source install/setup.bash
-# after every build: the control node needs a raw socket, mlockall and SCHED_FIFO
-sudo setcap cap_net_raw,cap_ipc_lock,cap_sys_nice+ep \
-  $(readlink -f install/pr2_ros2_control/lib/pr2_ros2_control/pr2_control_node)
 ros2 launch pr2_ros2_control pr2_control.launch.py   # ethercat_interface:=ecat0
 ```
 
-A binary with file capabilities runs in secure mode, where the dynamic loader ignores
-`LD_LIBRARY_PATH`. `pr2_control_node` therefore gets an absolute RPATH at build time. It is built from
-the ROS 2 entries of `LD_LIBRARY_PATH` (those under an `AMENT_PREFIX_PATH` prefix), so build in the
-same environment you run in.
+### Realtime privileges (`tools/`, decision D11)
+
+The control loop needs a raw socket (`CAP_NET_RAW`), locked memory (`CAP_IPC_LOCK`) and SCHED_FIFO
+(`CAP_SYS_NICE`).
+
+- `pr2-rt-exec`: a small setuid-root helper in `/usr/local/bin`, runnable only by one group. It
+  grants exactly these three capabilities as *ambient* capabilities, drops root completely and runs
+  the program. It also limits the capability bounding set to those three, so nothing started from
+  the program can gain more.
+- `pr2-rt`: a shell wrapper around it that resolves the program through `PATH` and carries
+  `LD_LIBRARY_PATH` across, which glibc strips from setuid programs.
+- The launch file starts `pr2_control_node` with `prefix='pr2-rt'`. For other tools:
+  `ros2 run --prefix pr2-rt ethercat_hardware read_only_check -i ecat0`.
+- Nothing is attached to the binaries, so rebuilding needs no `setcap`. The programs also don't
+  run in the loader's secure mode, so no RPATH tricks are needed.
 
 The node takes the same interface lock as ROS 1 (`/var/tmp/run/EtherCAT_<if>.pid`, or the host's
 copy under `/run/host` inside distrobox), so it refuses to start while the ROS 1 robot runs and

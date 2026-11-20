@@ -1,4 +1,4 @@
-<library path="ethercat_hardware">
+<library path="ethercat_hardware_devices">
   <class name="ethercat_hardware/6805005" type="WG05" base_class_type="EthercatDevice">
     <description>
       WG05 - Generic Motor Control Board

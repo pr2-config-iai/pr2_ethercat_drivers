@@ -3,9 +3,9 @@
 Starts robot_state_publisher with the IAI PR2 description + <ros2_control> block, the realtime
 controller manager (pr2_control_node) and the joint_state_broadcaster.
 
-pr2_control_node needs file capabilities after every build:
-  sudo setcap cap_net_raw,cap_ipc_lock,cap_sys_nice+ep \
-    $(readlink -f install/pr2_ros2_control/lib/pr2_ros2_control/pr2_control_node)
+pr2_control_node is started through pr2-rt, which grants it the realtime capabilities (raw
+socket, mlockall, SCHED_FIFO). Install pr2-rt once per machine/container:
+  src/pr2_ethercat_drivers/pr2_ros2_control/tools/install_pr2_rt.sh
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -17,6 +17,7 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     interface = LaunchConfiguration('ethercat_interface')
+    rt_prefix = LaunchConfiguration('rt_prefix')
     robot_description = ParameterValue(
         Command([
             FindExecutable(name='xacro'), ' ',
@@ -28,6 +29,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('ethercat_interface', default_value='ecat0'),
+        DeclareLaunchArgument('rt_prefix', default_value='pr2-rt',
+                              description='Launch prefix that grants the realtime capabilities'),
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
@@ -36,6 +39,7 @@ def generate_launch_description():
         Node(
             package='pr2_ros2_control',
             executable='pr2_control_node',
+            prefix=rt_prefix,
             parameters=[controllers],
             output='screen'),
         Node(

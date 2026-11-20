@@ -1,9 +1,9 @@
 /*
  * Realtime controller manager node for the PR2.
  *
- * Same job as ros2_control_node, but as an executable of our own so it can be given the file
- * capabilities the EtherCAT loop needs (raw socket, mlockall, SCHED_FIFO) and an absolute RPATH:
- * a binary with file capabilities runs in secure mode and ignores LD_LIBRARY_PATH.
+ * Same job as ros2_control_node, but our own executable: it is the one process that gets the
+ * capabilities the EtherCAT loop needs (raw socket, mlockall, SCHED_FIFO), granted at start by
+ * pr2-rt (tools/pr2-rt-exec.c, decision D11) rather than to a system binary.
  *
  * Like ROS 1 pr2_ethercat, the control thread runs read/update/write at SCHED_FIFO maximum
  * priority by default (parameter thread_priority on the controller manager), timed on
@@ -64,7 +64,7 @@ int main(int argc, char **argv)
   std::thread control_thread([cm, thread_priority, logger]() {
     if (!realtime_tools::configure_sched_fifo(thread_priority))
     {
-      RCLCPP_WARN(logger, "Could not get SCHED_FIFO priority %d (are the capabilities set on this binary?). "
+      RCLCPP_WARN(logger, "Could not get SCHED_FIFO priority %d (was the node started through pr2-rt?). "
                           "Running without realtime priority.", thread_priority);
     }
     else

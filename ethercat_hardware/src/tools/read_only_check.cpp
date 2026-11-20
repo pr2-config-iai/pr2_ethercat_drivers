@@ -155,7 +155,7 @@ int main(int argc, char **argv)
     const bool realtime = (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) == 0);
     if (!realtime)
     {
-      std::fprintf(stderr, "WARNING: could not get SCHED_FIFO (run setcap on this binary); "
+      std::fprintf(stderr, "WARNING: could not get SCHED_FIFO (start it with: ros2 run --prefix pr2-rt ...); "
                            "running without realtime priority\n");
     }
 

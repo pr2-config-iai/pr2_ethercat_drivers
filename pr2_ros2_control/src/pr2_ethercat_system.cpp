@@ -12,7 +12,6 @@
 #include <std_msgs/msg/string.hpp>
 
 #include "ethercat_hardware/ethercat_hardware.h"
-#include "pr2_mechanism_model/pr2_gripper_transmission.h"
 #include "pr2_mechanism_model/robot.h"
 #include "pr2_mechanism_model/transmission.h"
 
@@ -148,6 +147,24 @@ CallbackReturn Pr2EthercatSystem::on_configure(const rclcpp_lifecycle::State &)
     return CallbackReturn::ERROR;
   }
   state_ = std::make_unique<pr2_mechanism_model::RobotState>(robot_.get());
+  // Gripper transmissions, recognised by their URDF type: the transmission classes are plugins in
+  // their own library, which this plugin deliberately does not link (see pr2_mechanism_model).
+  gripper_transmissions_.clear();
+  for (TiXmlElement *t = root->FirstChildElement("transmission"); t; t = t->NextSiblingElement("transmission"))
+  {
+    const char *type = t->Attribute("type");
+    if (!type && t->FirstChildElement("type"))
+    {
+      type = t->FirstChildElement("type")->GetText();
+    }
+    const std::string suffix = "PR2GripperTransmission";
+    const std::string type_str = type ? type : "";
+    if (t->Attribute("name") && type_str.size() >= suffix.size() &&
+        type_str.compare(type_str.size() - suffix.size(), suffix.size(), suffix) == 0)
+    {
+      gripper_transmissions_.insert(t->Attribute("name"));
+    }
+  }
   RCLCPP_INFO(get_logger(), "Mechanism model: %zu transmissions, %zu joints.", robot_->transmissions_.size(),
               state_->joint_states_.size());
 
@@ -225,7 +242,7 @@ void Pr2EthercatSystem::reportCalibration()
   {
     const auto &t = robot_->transmissions_[i];
     // Grippers have no <calibration> edge: ROS 1 calibrates them against the closed end stop.
-    bool needs_calibration = dynamic_cast<pr2_mechanism_model::PR2GripperTransmission *>(t.get()) != nullptr;
+    bool needs_calibration = gripper_transmissions_.count(t->name_) > 0;
     for (auto *js : state_->transmissions_out_[i])
     {
       if (js->joint_ && js->joint_->calibration && (js->joint_->calibration->rising || js->joint_->calibration->falling))
