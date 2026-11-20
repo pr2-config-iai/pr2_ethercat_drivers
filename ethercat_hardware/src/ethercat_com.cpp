@@ -66,7 +66,8 @@ EthercatOobCom::EthercatOobCom(struct netif *ni) :
   state_(IDLE),
   frame_(NULL),
   handle_(-1),
-  line_(0)
+  line_(0),
+  cancelled_(false)
 {
   assert(ni_!=NULL);
 
@@ -151,16 +152,30 @@ bool EthercatOobCom::txandrx_once(struct EtherCAT_Frame * frame)
     return false;
       
   // Wait for an opening to send frame
-  while (state_ != IDLE) {
+  while (state_ != IDLE && !cancelled_) {
     pthread_cond_wait(&share_cond_,&mutex_);
   }  
+  if (cancelled_) {
+    unlock(__LINE__);
+    return false;
+  }
   frame_ = frame;
   state_ = READY_TO_SEND;
 
   // RT control loop will send frame 
   do {
     pthread_cond_wait(&busy_cond_,&mutex_);
-  } while (state_ != WAITING_TO_RECV);
+  } while (state_ != WAITING_TO_RECV && !cancelled_);
+
+  if (state_ == READY_TO_SEND) {
+    // Cancelled before the RT loop sent the frame: withdraw it. tx() only looks at the frame
+    // under the mutex, so it can no longer pick it up.
+    frame_ = NULL;
+    state_ = IDLE;
+    pthread_cond_signal(&share_cond_);
+    unlock(__LINE__);
+    return false;
+  }
 
   // Packet has been sent, wait for recv
   bool success = false;
@@ -186,6 +201,9 @@ bool EthercatOobCom::txandrx(struct EtherCAT_Frame * frame)
     if (this->txandrx_once(frame)) {
       return true;
     }
+    if (isCancelled()) {
+      return false;
+    }
   }
   return false;
 }
@@ -207,3 +225,30 @@ void EthercatOobCom::tx()
   unlock(__LINE__);  
 }
 
+
+void EthercatOobCom::cancel()
+{
+  if (!lock(__LINE__))
+    return;
+  cancelled_ = true;
+  pthread_cond_broadcast(&share_cond_);
+  pthread_cond_broadcast(&busy_cond_);
+  unlock(__LINE__);
+}
+
+void EthercatOobCom::resume()
+{
+  if (!lock(__LINE__))
+    return;
+  cancelled_ = false;
+  unlock(__LINE__);
+}
+
+bool EthercatOobCom::isCancelled()
+{
+  if (!lock(__LINE__))
+    return true;
+  const bool cancelled = cancelled_;
+  unlock(__LINE__);
+  return cancelled;
+}

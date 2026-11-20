@@ -250,6 +250,16 @@ public:
    */
   void collectDiagnostics();
 
+  /*!
+   * \brief Make a collectDiagnostics() running in another thread return soon, and later calls return
+   * immediately, until resumeCollectDiagnostics() (ROS 2 port).
+   *
+   * collectDiagnostics() sends its frames through the realtime loop and waits for update() to send
+   * them. Call this before stopping a diagnostics thread at a time update() may not be called.
+   */
+  void interruptCollectDiagnostics();
+  void resumeCollectDiagnostics();
+
   void printCounters(std::ostream &os=std::cout); 
 
   /*!

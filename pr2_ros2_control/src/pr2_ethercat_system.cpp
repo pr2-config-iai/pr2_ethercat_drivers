@@ -2,6 +2,8 @@
 
 #include <tinyxml.h>
 
+#include <pthread.h>
+#include <sched.h>
 #include <algorithm>
 #include <chrono>
 #include <set>
@@ -289,13 +291,54 @@ CallbackReturn Pr2EthercatSystem::on_activate(const rclcpp_lifecycle::State &)
   }
   reportCalibration();
   fault_reported_ = false;
+  startDiagnosticsThread();
   RCLCPP_INFO(get_logger(), "Active (read-only: motors stay halted).");
   return CallbackReturn::SUCCESS;
 }
 
 CallbackReturn Pr2EthercatSystem::on_deactivate(const rclcpp_lifecycle::State &)
 {
+  stopDiagnosticsThread();
   return CallbackReturn::SUCCESS;
+}
+
+void Pr2EthercatSystem::startDiagnosticsThread()
+{
+  stopDiagnosticsThread();
+  ec_->resumeCollectDiagnostics();
+  diagnostics_stop_ = false;
+  diagnostics_thread_ = std::thread([this]() {
+    // Lifecycle transitions may run in the realtime control thread; never inherit its priority.
+    sched_param param{};
+    param.sched_priority = 0;
+    pthread_setschedparam(pthread_self(), SCHED_OTHER, &param);
+    pthread_setname_np(pthread_self(), "pr2_ec_diag");
+    std::unique_lock<std::mutex> lock(diagnostics_mutex_);
+    while (!diagnostics_stop_)
+    {
+      lock.unlock();
+      ec_->collectDiagnostics();
+      lock.lock();
+      diagnostics_cv_.wait_for(lock, std::chrono::seconds(1), [this]() { return diagnostics_stop_; });
+    }
+  });
+}
+
+void Pr2EthercatSystem::stopDiagnosticsThread()
+{
+  if (!diagnostics_thread_.joinable())
+  {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(diagnostics_mutex_);
+    diagnostics_stop_ = true;
+  }
+  diagnostics_cv_.notify_all();
+  // collectDiagnostics() waits for read() to send its frames, and ros2_control does not call read()
+  // during lifecycle transitions: interrupt it rather than wait.
+  ec_->interruptCollectDiagnostics();
+  diagnostics_thread_.join();
 }
 
 CallbackReturn Pr2EthercatSystem::on_cleanup(const rclcpp_lifecycle::State &)
@@ -318,6 +361,7 @@ CallbackReturn Pr2EthercatSystem::on_error(const rclcpp_lifecycle::State &)
 
 void Pr2EthercatSystem::shutdownHardware()
 {
+  stopDiagnosticsThread();
   handles_.clear();
   state_.reset();
   robot_.reset();

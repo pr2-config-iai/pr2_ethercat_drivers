@@ -77,6 +77,13 @@ public:
   bool txandrx_once(struct EtherCAT_Frame * frame);
   
   void tx();
+
+  // ROS 2 port: make txandrx() calls waiting in other threads return false soon, and later calls
+  // return false immediately, until resume(). txandrx() otherwise waits for the realtime loop to
+  // call tx(), which never happens once the loop stops calling EthercatHardware::update().
+  void cancel();
+  void resume();
+  bool isCancelled();
 protected:
   bool lock(unsigned line);
   bool trylock(unsigned line);
@@ -90,6 +97,7 @@ protected:
   EtherCAT_Frame *frame_;
   int handle_;
   unsigned line_;
+  bool cancelled_;
 };
 
 

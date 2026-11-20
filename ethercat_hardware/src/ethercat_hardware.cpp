@@ -906,17 +906,35 @@ void EthercatHardware::collectDiagnostics()
     
     // Put read telegram in ethercat/ethernet frame
     EC_Ethernet_Frame frame(&status);    
-    oob_com_->txandrx(&frame);
-
-    // Worry about locking for single value?
-    diagnostics_.device_count_ = status.get_adp();
+    // ROS 2 port: only use the count if the frame came back (it used to be taken from a dropped
+    // or interrupted frame too).
+    if (oob_com_->txandrx(&frame))
+    {
+      // Worry about locking for single value?
+      diagnostics_.device_count_ = status.get_adp();
+    }
   }
 
   for (unsigned i = 0; i < slaves_.size(); ++i)
   {    
+    if (oob_com_->isCancelled())
+      return;
     std::shared_ptr<EthercatDevice> d(slaves_[i]);
     d->collectDiagnostics(oob_com_);
   }
+}
+
+
+void EthercatHardware::interruptCollectDiagnostics()
+{
+  if (oob_com_)
+    oob_com_->cancel();
+}
+
+void EthercatHardware::resumeCollectDiagnostics()
+{
+  if (oob_com_)
+    oob_com_->resume();
 }
 
 

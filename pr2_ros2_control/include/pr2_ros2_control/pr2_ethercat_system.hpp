@@ -20,9 +20,12 @@
 #ifndef PR2_ROS2_CONTROL__PR2_ETHERCAT_SYSTEM_HPP_
 #define PR2_ROS2_CONTROL__PR2_ETHERCAT_SYSTEM_HPP_
 
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <hardware_interface/system_interface.hpp>
@@ -84,6 +87,15 @@ private:
   std::unique_ptr<pr2_mechanism_model::RobotState> state_;
   std::vector<JointHandles> handles_;  // in the order of info_.joints
   bool ethercat_initialized_once_ = false;
+  // Non-realtime thread that calls EthercatHardware::collectDiagnostics() once a second while
+  // active, like ROS 1 pr2_ethercat's diagnosticLoop (motor board mailbox diagnostics, device count).
+  void startDiagnosticsThread();
+  void stopDiagnosticsThread();
+  std::thread diagnostics_thread_;
+  std::mutex diagnostics_mutex_;
+  std::condition_variable diagnostics_cv_;
+  bool diagnostics_stop_ = false;
+
   bool fault_reported_ = false;
   std::set<std::string> gripper_transmissions_;  // names, from the URDF
 };

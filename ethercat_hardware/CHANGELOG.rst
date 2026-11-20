@@ -4,6 +4,11 @@ Changelog for package ethercat_hardware
 
 2.0.0 (unreleased)
 ------------------
+* ``EthercatOobCom`` transfers can be cancelled (``cancel()``/``resume()``), and
+  ``EthercatHardware::interruptCollectDiagnostics()``/``resumeCollectDiagnostics()`` use that, so a
+  diagnostics thread can be stopped while ``update()`` is not being called. A frame not yet sent is
+  withdrawn under the channel's mutex.
+* ``collectDiagnostics()`` only takes the device count from a frame that came back.
 * ``motors_halted`` is published as ``~/motors_halted`` (``/pr2_ethercat/motors_halted`` under
   ros2_control), the ROS 1 name that ``pr2_dashboard_aggregator`` subscribes to. A plain relative
   name resolves to the node's namespace in ROS 2, which gave ``/motors_halted``.
