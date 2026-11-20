@@ -236,6 +236,7 @@ CallbackReturn Pr2EthercatSystem::on_configure(const rclcpp_lifecycle::State &)
 
   // Connect the declared joints to the model and cache the interface handles.
   handles_.clear();
+  effort_command_index_.clear();
   std::vector<std::string> unknown;
   for (const auto &joint : info_.joints)
   {
@@ -258,6 +259,10 @@ CallbackReturn Pr2EthercatSystem::on_configure(const rclcpp_lifecycle::State &)
       h.effort_command = get_command_interface_handle(joint.name + "/effort");
     }
     h.commanded = commanding_enabled_ && commanded_joints_.count(joint.name) > 0;
+    if (h.effort_command)
+    {
+      effort_command_index_[joint.name + "/effort"] = handles_.size();
+    }
     handles_.push_back(h);
   }
   if (!unknown.empty())
@@ -573,6 +578,48 @@ return_type Pr2EthercatSystem::read(const rclcpp::Time &, const rclcpp::Duration
   return return_type::OK;
 }
 
+return_type Pr2EthercatSystem::prepare_command_mode_switch(const std::vector<std::string> &start_interfaces,
+                                                           const std::vector<std::string> &)
+{
+  for (const auto &name : start_interfaces)
+  {
+    const auto it = effort_command_index_.find(name);
+    if (it == effort_command_index_.end())
+    {
+      continue;  // not ours
+    }
+    if (!handles_[it->second].commanded)
+    {
+      RCLCPP_ERROR(get_logger(), "Refusing to give %s to a controller: %s.", name.c_str(),
+                   commanding_enabled_ ? "the joint is not in commanded_joints" : "commanding is not enabled");
+      return return_type::ERROR;
+    }
+  }
+  return return_type::OK;
+}
+
+return_type Pr2EthercatSystem::perform_command_mode_switch(const std::vector<std::string> &start_interfaces,
+                                                           const std::vector<std::string> &stop_interfaces)
+{
+  for (const auto &name : stop_interfaces)
+  {
+    const auto it = effort_command_index_.find(name);
+    if (it != effort_command_index_.end())
+    {
+      handles_[it->second].claimed = false;
+    }
+  }
+  for (const auto &name : start_interfaces)
+  {
+    const auto it = effort_command_index_.find(name);
+    if (it != effort_command_index_.end())
+    {
+      handles_[it->second].claimed = handles_[it->second].commanded;
+    }
+  }
+  return return_type::OK;
+}
+
 bool Pr2EthercatSystem::loopTooSlow()
 {
   // ROS 1 pr2_ethercat: "Realtime loop should be running at least 750Hz. Calculate realtime loop
@@ -620,7 +667,7 @@ return_type Pr2EthercatSystem::write(const rclcpp::Time &, const rclcpp::Duratio
     state_->zeroCommands();
     for (const auto &h : handles_)
     {
-      if (!h.commanded || !h.effort_command || (h.needs_calibration && !h.joint->calibrated_))
+      if (!h.commanded || !h.claimed || !h.effort_command || (h.needs_calibration && !h.joint->calibrated_))
       {
         continue;
       }

@@ -27,6 +27,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -76,6 +77,13 @@ public:
   hardware_interface::return_type read(const rclcpp::Time &time, const rclcpp::Duration &period) override;
   hardware_interface::return_type write(const rclcpp::Time &time, const rclcpp::Duration &period) override;
 
+  // Controllers may only claim the effort interfaces of commanded joints; released interfaces are
+  // no longer applied (a stopped controller leaves its last value in the interface).
+  hardware_interface::return_type prepare_command_mode_switch(const std::vector<std::string> &start_interfaces,
+                                                              const std::vector<std::string> &stop_interfaces) override;
+  hardware_interface::return_type perform_command_mode_switch(const std::vector<std::string> &start_interfaces,
+                                                              const std::vector<std::string> &stop_interfaces) override;
+
 private:
   struct JointHandles
   {
@@ -83,6 +91,7 @@ private:
     hardware_interface::StateInterface::SharedPtr position, velocity, effort;
     hardware_interface::CommandInterface::SharedPtr effort_command;
     bool commanded = false;          // listed in commanded_joints
+    bool claimed = false;            // its effort interface is claimed by a controller
     bool needs_calibration = false;  // its transmission is calibrated by ROS 1 (see reportCalibration)
   };
 
@@ -108,6 +117,7 @@ private:
   std::unique_ptr<pr2_mechanism_model::Robot> robot_;
   std::unique_ptr<pr2_mechanism_model::RobotState> state_;
   std::vector<JointHandles> handles_;  // in the order of info_.joints
+  std::map<std::string, size_t> effort_command_index_;  // "<joint>/effort" -> handles_ index
   bool ethercat_initialized_once_ = false;
   // Non-realtime thread that calls EthercatHardware::collectDiagnostics() once a second while
   // active, like ROS 1 pr2_ethercat's diagnosticLoop (motor board mailbox diagnostics, device count).
