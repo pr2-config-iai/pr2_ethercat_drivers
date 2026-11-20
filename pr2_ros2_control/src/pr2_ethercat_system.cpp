@@ -225,6 +225,12 @@ CallbackReturn Pr2EthercatSystem::on_configure(const rclcpp_lifecycle::State &)
   }
 
   // One halted exchange so the state interfaces hold real values before anything reads them.
+  // Like ROS 1 pr2_ethercat's first cycle after init: one motor reset. Two cycles later it clears
+  // the boards' latched safety faults and the error flags (e.g. the timestamp jump every board
+  // reports for its first packet). halt stays set on every cycle and the commands keep enable off,
+  // so no board leaves MODE_OFF.
+  RCLCPP_INFO(get_logger(), "Startup motor reset (as in ROS 1): clears latched board faults, motors stay halted.");
+  reset_on_next_read_ = true;
   if (read(rclcpp::Time(0, 0, RCL_STEADY_TIME), rclcpp::Duration(0, 0)) != return_type::OK)
   {
     shutdownHardware();
@@ -381,7 +387,9 @@ return_type Pr2EthercatSystem::read(const rclcpp::Time &, const rclcpp::Duration
   }
 
   // One EtherCAT exchange: sends the commands from the last write() (halted) and receives status.
-  ec_->update(false /*reset*/, true /*halt*/);
+  const bool reset = reset_on_next_read_;
+  reset_on_next_read_ = false;
+  ec_->update(reset, true /*halt*/);
   state_->propagateActuatorPositionToJointPosition();
 
   for (const auto &h : handles_)

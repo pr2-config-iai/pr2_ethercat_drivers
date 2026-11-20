@@ -97,6 +97,7 @@ private:
   bool diagnostics_stop_ = false;
 
   bool fault_reported_ = false;
+  bool reset_on_next_read_ = false;  // one motor reset after EtherCAT comes up (see on_configure)
   std::set<std::string> gripper_transmissions_;  // names, from the URDF
 };
 

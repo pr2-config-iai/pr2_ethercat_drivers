@@ -11,7 +11,9 @@ ros2_control for the PR2's EtherCAT motor chain (ROS 2 Jazzy).
   joint_state_broadcaster.
 
 **Current state: read-only.** Only state interfaces are exported and the motors are halted on
-every cycle. The component reports an error if any actuator ever reports being enabled.
+every cycle. The component reports an error if any actuator ever reports being enabled. Like ROS 1,
+it sends one motor reset when EtherCAT comes up (with halt still set), which clears the boards'
+latched safety faults and error flags (decision D16).
 
 ## Running
 

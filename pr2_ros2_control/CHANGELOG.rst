@@ -4,6 +4,9 @@ Changelog for package pr2_ros2_control
 
 2.0.0 (unreleased)
 ------------------
+* One motor reset with the first EtherCAT exchange, as ROS 1 ``pr2_ethercat`` does in its first cycle,
+  with halt still set: clears the boards' latched safety faults and error flags (every board
+  reported "Timestamp jumped" for its first packet forever).
 * Collect the motor boards' diagnostics (``EthercatHardware::collectDiagnostics()``) once a second in
   a normal-priority thread while active, like ROS 1 ``pr2_ethercat``'s ``diagnosticLoop``. Without it
   every board reported "Have not yet collected diagnostics" and the EtherCAT Master "Number of
