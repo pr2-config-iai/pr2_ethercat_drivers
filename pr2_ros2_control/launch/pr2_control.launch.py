@@ -44,7 +44,7 @@ def generate_launch_description():
                               description='Extra limit on commanded efforts, as a fraction of the URDF limit'),
         DeclareLaunchArgument('min_acceptable_rt_loop_frequency', default_value='750.0',
                               description='Motors are halted while the loop runs slower (ROS 1: 750 Hz)'),
-        DeclareLaunchArgument('velocity_window', default_value='10',
+        DeclareLaunchArgument('velocity_window', default_value='1',
                               description='Encoder samples the actuator velocity is taken over (ROS 1: 1)'),
         Node(
             package='robot_state_publisher',

@@ -39,9 +39,14 @@ ros2 launch pr2_ros2_control pr2_control.launch.py commanding_enabled:=true \
   e-stop auto restart) first restarts the active controllers that claim command interfaces, then
   releases the motors, as ROS 1's controller manager did (D26). PID controllers need
   `save_i_term: false` for the restart to clear their integral.
-- **Velocity:** taken over the last `velocity_window` encoder samples (default 10, about 5 ms of
-  delay) with the boards' sample timestamps, so it moves in steps 10 times finer than ROS 1's
-  one-count-per-cycle steps (0.04 to 0.16 rad/s at the joints). `velocity_window:=1` is ROS 1 (D22).
+- **Velocity:** by default as ROS 1, one encoder count per cycle (steps of 0.04 to 0.16 rad/s at the
+  joints). `velocity_window:=N` takes it over the last N samples with the boards' sample timestamps:
+  N times finer steps for about N/2 ms of delay, which made the elbow's velocity loop oscillate at
+  N = 10 (D22, D27). Useful for plots; for control, test before using it.
+- **Velocity controller tests:** `ros2 run pr2_ros2_control velocity_step_test.py --controller
+  r_arm_velocity_controller --joint r_elbow_flex_joint` holds the controller's other joints at
+  0 rad/s, steps one joint up and back, and halts the motors at the end or as soon as a joint
+  moves too fast, too far or out of its soft limits (D27). `--joint none` only holds.
 - `config/controllers.yaml` defines `r_wrist_roll_effort_controller`
   (`effort_controllers/JointGroupEffortController`) and `r_wrist_velocity_controller`
   (`pid_controller/PidController` on both wrist joints, provisional gains from D23); neither is

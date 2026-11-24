@@ -10,6 +10,12 @@ Changelog for package pr2_ros2_control
   activate), and the motors are reset after that; if the restart fails they stay halted. The
   component and the node meet in ``MotorReleaseGate`` (library ``pr2_motor_release_gate``).
   ``r_wrist_velocity_controller`` sets ``save_i_term: false`` so that the restart clears the integral.
+* ``velocity_window`` default back to 1 (ROS 1's single-sample velocity): with 10 samples the elbow's
+  velocity loop (p 6) oscillated from the 5 ms of delay; with 1 sample it was stable (decision D27).
+* ``r_arm_velocity_controller`` (provisional, not started): all 7 right arm joints, WG's calibration
+  velocity gains, clamped to the effort limit (D27).
+* ``tools/velocity_step_test.py``: velocity steps on one joint of a velocity controller while the
+  others are held, with a watchdog that halts the motors (D27).
 * Actuator velocity over the last ``velocity_window`` encoder samples (default 10), timed with the
   motor boards' sample timestamps, instead of ROS 1's single-sample difference, whose steps are one
   encoder count per cycle (0.04 to 0.16 rad/s at the joints); 10 times finer for about 5 ms of delay

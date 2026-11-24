@@ -68,6 +68,7 @@ target_link_libraries(pr2_control_node
 install(TARGETS ${PROJECT_NAME} pr2_motor_release_gate EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
 install(TARGETS pr2_control_node DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS tools/velocity_step_test.py DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
 install(DIRECTORY config launch urdf DESTINATION share/${PROJECT_NAME})
 install(DIRECTORY tools DESTINATION share/${PROJECT_NAME} USE_SOURCE_PERMISSIONS)

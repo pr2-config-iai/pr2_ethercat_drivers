@@ -16,9 +16,10 @@
  * min_acceptable_rt_loop_frequency, until ~/reset_motors; they also start halted until the first
  * reset.
  *
- * Velocity: the actuator velocity is the encoder difference over the last velocity_window samples
- * (default 10), timed with the motor boards' sample timestamps, instead of ROS 1's single sample whose
- * steps are 0.04 to 0.16 rad/s at the joints (decision D22); velocity_window 1 gives ROS 1's value.
+ * Velocity: as ROS 1 by default, the encoder difference over one sample (steps of 0.04 to 0.16 rad/s
+ * at the joints). With velocity_window N > 1 it is taken over the last N samples, timed with the
+ * motor boards' sample timestamps: N times finer, for about N/2 ms of delay, which a velocity loop
+ * may not tolerate (decisions D22, D27).
  *
  * Controllers: with commanding enabled, a reset of halted motors first has pr2_control_node restart
  * the active controllers that claim command interfaces (MotorReleaseGate), as ROS 1's controller
@@ -119,7 +120,7 @@ private:
   std::set<std::string> commanded_joints_;
   double max_effort_fraction_ = 0.1;
   double min_acceptable_rt_loop_frequency_ = 750.0;
-  int velocity_window_ = 10;  // encoder samples the actuator velocity is taken over (1 = ROS 1)
+  int velocity_window_ = 1;  // encoder samples the actuator velocity is taken over (1 = ROS 1)
 
   std::string urdf_;
   ethercat_hardware::InterfaceLock lock_;
