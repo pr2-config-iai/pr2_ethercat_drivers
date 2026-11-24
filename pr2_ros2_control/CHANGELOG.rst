@@ -4,6 +4,12 @@ Changelog for package pr2_ros2_control
 
 2.0.0 (unreleased)
 ------------------
+* As ROS 1's controller manager, controllers start fresh when halted motors are released
+  (decision D26): with commanding enabled, a reset of halted motors first has ``pr2_control_node``
+  restart the active controllers that claim command interfaces (one switch, deactivate and
+  activate), and the motors are reset after that; if the restart fails they stay halted. The
+  component and the node meet in ``MotorReleaseGate`` (library ``pr2_motor_release_gate``).
+  ``r_wrist_velocity_controller`` sets ``save_i_term: false`` so that the restart clears the integral.
 * Actuator velocity over the last ``velocity_window`` encoder samples (default 10), timed with the
   motor boards' sample timestamps, instead of ROS 1's single-sample difference, whose steps are one
   encoder count per cycle (0.04 to 0.16 rad/s at the joints); 10 times finer for about 5 ms of delay

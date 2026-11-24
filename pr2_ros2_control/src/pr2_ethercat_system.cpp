@@ -16,6 +16,7 @@
 
 #include "ethercat_hardware/ethercat_hardware.h"
 #include "pr2_ros2_control/effort_chain.hpp"
+#include "pr2_ros2_control/motor_release_gate.hpp"
 #include "pr2_mechanism_model/robot.h"
 #include "pr2_mechanism_model/transmission.h"
 
@@ -330,8 +331,23 @@ CallbackReturn Pr2EthercatSystem::on_configure(const rclcpp_lifecycle::State &)
   reset_motors_service_ = get_node()->create_service<Empty>(
     "~/reset_motors",
     [this](const std::shared_ptr<Empty::Request>, std::shared_ptr<Empty::Response>) {
-      RCLCPP_INFO(get_logger(), commanding_enabled_ ? "Motor reset requested: clears latched board faults and the halt."
-                                                    : "Motor reset requested: clears latched board faults, motors stay halted.");
+      if (!commanding_enabled_)
+      {
+        RCLCPP_INFO(get_logger(), "Motor reset requested: clears latched board faults, motors stay halted.");
+        reset_requested_ = true;
+        return;
+      }
+      if (motors_halted_ && MotorReleaseGate::instance().requestRelease())
+      {
+        RCLCPP_INFO(get_logger(), "Motor reset requested: restarting the controllers, then releasing the motors.");
+        return;  // read() resets once the controllers are restarted
+      }
+      if (motors_halted_)
+      {
+        RCLCPP_WARN(get_logger(), "Motor reset requested, but no controller manager restarts the controllers "
+                                  "(not running in pr2_control_node): they keep their state from before the halt.");
+      }
+      RCLCPP_INFO(get_logger(), "Motor reset requested: clears latched board faults and the halt.");
       reset_requested_ = true;
     });
   halt_motors_service_ = get_node()->create_service<Empty>(
@@ -472,6 +488,7 @@ CallbackReturn Pr2EthercatSystem::on_activate(const rclcpp_lifecycle::State &)
 
 CallbackReturn Pr2EthercatSystem::on_deactivate(const rclcpp_lifecycle::State &)
 {
+  MotorReleaseGate::instance().cancel();
   stopDiagnosticsThread();
   return CallbackReturn::SUCCESS;
 }
@@ -559,7 +576,24 @@ return_type Pr2EthercatSystem::read(const rclcpp::Time &, const rclcpp::Duration
   // One EtherCAT exchange: sends the commands from the last write() and receives status.
   // EthercatHardware keeps a halt until the next reset (as ROS 1), so halt only has to be passed
   // once; read-only it is passed on every cycle so that a reset does not release the motors.
-  const bool requested_reset = reset_requested_.exchange(false);
+  bool gate_reset = false;
+  switch (MotorReleaseGate::instance().takeResult())
+  {
+    case MotorReleaseGate::State::RESTARTED:
+      gate_reset = true;
+      gate_failure_reported_ = false;
+      break;
+    case MotorReleaseGate::State::FAILED:
+      if (!gate_failure_reported_)
+      {
+        RCLCPP_ERROR(get_logger(), "Restarting the controllers failed: the motors stay halted. Reset again to retry.");
+        gate_failure_reported_ = true;
+      }
+      break;
+    default:
+      break;
+  }
+  const bool requested_reset = reset_requested_.exchange(false) || gate_reset;
   const bool reset = reset_on_next_read_ || requested_reset;
   reset_on_next_read_ = false;
   if (requested_reset)
@@ -579,6 +613,13 @@ return_type Pr2EthercatSystem::read(const rclcpp::Time &, const rclcpp::Duration
     s.velocity_ = velocity_windows_[i].update(s.position_ + s.zero_offset_, s.sample_timestamp_.seconds());
   }
   state_->propagateActuatorPositionToJointPosition();
+
+  bool halted = commanded_actuators_.empty();
+  for (const auto *a : commanded_actuators_)
+  {
+    halted = halted || a->state_.halted_;
+  }
+  motors_halted_ = halted;
 
   for (const auto &h : handles_)
   {

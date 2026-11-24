@@ -20,6 +20,10 @@
  * (default 10), timed with the motor boards' sample timestamps, instead of ROS 1's single sample whose
  * steps are 0.04 to 0.16 rad/s at the joints (decision D22); velocity_window 1 gives ROS 1's value.
  *
+ * Controllers: with commanding enabled, a reset of halted motors first has pr2_control_node restart
+ * the active controllers that claim command interfaces (MotorReleaseGate), as ROS 1's controller
+ * manager restarted them when the motors came back; the motors are reset once that is done (D26).
+ *
  * Calibration: the zero offsets that ROS 1's calibration controllers stored on the motor boards
  * are read back at startup (like ROS 1 does), and each calibrated joint's reference position is
  * set from its URDF <calibration> edge, as ROS 1's calibration controllers do when they start.
@@ -143,6 +147,11 @@ private:
   rclcpp::Service<std_srvs::srv::Empty>::SharedPtr halt_motors_service_;
   std::atomic<bool> halt_requested_{false};
   bool released_by_reset_ = false;  // commanding: motors stay halted until the first reset request
+  // An actuator of a commanded transmission reports halted (board off or in error), as ROS 1's
+  // RobotState::isHalted() but only for the actuators that may be enabled. A reset of halted motors
+  // first restarts the controllers through MotorReleaseGate (D26).
+  std::atomic<bool> motors_halted_{true};
+  bool gate_failure_reported_ = false;
 
   // Actuators of the transmissions that drive a commanded joint; all others must stay disabled.
   std::set<const pr2_hardware_interface::Actuator *> commanded_actuators_;

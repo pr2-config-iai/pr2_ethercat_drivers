@@ -26,7 +26,8 @@ r_wrist_roll_effort_controller:
 
 # Provisional gains from the D23 test at max_effort_fraction 0.1 (1 Nm per wrist joint): p from WG's
 # velocity config, a small integral, both clamped to that limit so the integral cannot wind up
-# against it. Both joints are controlled together: the wrist is a differential, and a free flex lets
+# against it. save_i_term false: a restart (D26) clears the integral, as ROS 1's starting() did.
+# Both joints are controlled together: the wrist is a differential, and a free flex lets
 # one motor turn alone (roll and flex move together). Not tuned.
 r_wrist_velocity_controller:
   ros__parameters:
@@ -35,6 +36,8 @@ r_wrist_velocity_controller:
     reference_and_state_interfaces: [velocity]
     gains:
       r_wrist_roll_joint: {p: 4.0, i: 5.0, d: 0.0, u_clamp_max: 1.0, u_clamp_min: -1.0,
-                           i_clamp_max: 1.0, i_clamp_min: -1.0, antiwindup_strategy: conditional_integration}
+                           i_clamp_max: 1.0, i_clamp_min: -1.0, antiwindup_strategy: conditional_integration,
+                           save_i_term: false}
       r_wrist_flex_joint: {p: 4.0, i: 5.0, d: 0.0, u_clamp_max: 1.0, u_clamp_min: -1.0,
-                           i_clamp_max: 1.0, i_clamp_min: -1.0, antiwindup_strategy: conditional_integration}
+                           i_clamp_max: 1.0, i_clamp_min: -1.0, antiwindup_strategy: conditional_integration,
+                           save_i_term: false}

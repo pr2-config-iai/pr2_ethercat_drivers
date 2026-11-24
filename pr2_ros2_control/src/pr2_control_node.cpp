@@ -9,6 +9,11 @@
  * priority by default (parameter thread_priority on the controller manager), timed on
  * CLOCK_MONOTONIC, and publishes the "Realtime Control Loop" diagnostics of ROS 1 (loop, EtherCAT
  * and controller times, jitter, overruns, loop frequency) once a second.
+ *
+ * Like ROS 1's controller manager, it restarts the controllers when halted motors are released:
+ * the hardware component asks through MotorReleaseGate, a thread here restarts the active
+ * controllers that claim command interfaces, and the component resets the motors after that
+ * (decision D26).
  */
 #include <sched.h>
 #include <sys/mman.h>
@@ -19,6 +24,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <controller_manager/controller_manager.hpp>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
@@ -26,6 +32,11 @@
 #include <rclcpp/rclcpp.hpp>
 #include <realtime_tools/realtime_helpers.hpp>
 #include <realtime_tools/realtime_publisher.hpp>
+
+#include <controller_manager_msgs/srv/switch_controller.hpp>
+#include <lifecycle_msgs/msg/state.hpp>
+
+#include "pr2_ros2_control/motor_release_gate.hpp"
 
 namespace
 {
@@ -149,6 +160,43 @@ void fillDiagnostics(LoopStats &s, double min_acceptable_frequency, diagnostic_m
   msg.header.stamp = stamp;
   msg.status.assign(1, status);
 }
+// Restart (deactivate and activate in one switch) the active controllers that claim command
+// interfaces, as ROS 1 pr2_controller_manager did when the motors came back from a halt: they start
+// again from the current state (integrals, setpoints). Broadcasters claim nothing and are left alone.
+bool restartCommandingControllers(controller_manager::ControllerManager &cm, const rclcpp::Logger &logger)
+{
+  std::vector<std::string> names;
+  std::string list;
+  for (const auto &spec : cm.get_loaded_controllers())
+  {
+    if (spec.c->get_lifecycle_state().id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE)
+    {
+      continue;
+    }
+    const auto config = spec.c->command_interface_configuration();
+    if (config.type == controller_interface::interface_configuration_type::NONE ||
+        (config.type == controller_interface::interface_configuration_type::INDIVIDUAL && config.names.empty()))
+    {
+      continue;
+    }
+    names.push_back(spec.info.name);
+    list += " " + spec.info.name;
+  }
+  if (names.empty())
+  {
+    RCLCPP_INFO(logger, "Motors released: no active controller claims command interfaces, none restarted.");
+    return true;
+  }
+  RCLCPP_INFO(logger, "Restarting controllers before the motors are released:%s", list.c_str());
+  const auto result = cm.switch_controller(names, names, controller_manager_msgs::srv::SwitchController::Request::STRICT,
+                                           false, rclcpp::Duration::from_seconds(2.0));
+  if (result != controller_interface::return_type::OK)
+  {
+    RCLCPP_ERROR(logger, "Restarting the controllers failed; the motors stay halted.");
+    return false;
+  }
+  return true;
+}
 }  // namespace
 
 int main(int argc, char **argv)
@@ -261,8 +309,22 @@ int main(int argc, char **argv)
     }
   });
 
+  auto &gate = pr2_ros2_control::MotorReleaseGate::instance();
+  gate.attach();
+  std::thread restart_thread([cm, logger, &gate]() {
+    while (rclcpp::ok())
+    {
+      if (gate.waitForRequest(std::chrono::milliseconds(200)))
+      {
+        gate.reportRestart(restartCommandingControllers(*cm, logger));
+      }
+    }
+  });
+
   executor->add_node(cm);
   executor->spin();
+  gate.detach();
+  restart_thread.join();
   control_thread.join();
   rclcpp::shutdown();
   return 0;

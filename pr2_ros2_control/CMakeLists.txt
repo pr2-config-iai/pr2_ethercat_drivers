@@ -12,6 +12,8 @@ add_compile_options(-Wall -Wextra)
 find_package(ament_cmake REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(controller_manager REQUIRED)
+find_package(controller_manager_msgs REQUIRED)
+find_package(lifecycle_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
 find_package(diagnostic_updater REQUIRED)
 find_package(pluginlib REQUIRED)
@@ -24,6 +26,12 @@ find_package(ethercat_hardware REQUIRED)
 find_package(pr2_mechanism_model REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(TINYXML REQUIRED IMPORTED_TARGET tinyxml)
+
+# Shared by the hardware component and pr2_control_node: one instance in the process (D26).
+add_library(pr2_motor_release_gate SHARED src/motor_release_gate.cpp)
+target_include_directories(pr2_motor_release_gate PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
 
 # The hardware component plugin
 add_library(${PROJECT_NAME} SHARED src/pr2_ethercat_system.cpp src/effort_chain.cpp)
@@ -39,6 +47,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   ${std_srvs_TARGETS}
   ethercat_hardware::ethercat_hardware_lib
   pr2_mechanism_model::pr2_mechanism_model
+  pr2_motor_release_gate
   PkgConfig::TINYXML)
 target_link_options(${PROJECT_NAME} PRIVATE -Wl,--no-undefined)
 pluginlib_export_plugin_description_file(hardware_interface pr2_ros2_control_plugins.xml)
@@ -51,9 +60,12 @@ target_link_libraries(pr2_control_node
   ${diagnostic_msgs_TARGETS}
   diagnostic_updater::diagnostic_updater
   realtime_tools::realtime_tools
+  ${controller_manager_msgs_TARGETS}
+  ${lifecycle_msgs_TARGETS}
+  pr2_motor_release_gate
   rclcpp::rclcpp)
 
-install(TARGETS ${PROJECT_NAME} EXPORT export_${PROJECT_NAME}
+install(TARGETS ${PROJECT_NAME} pr2_motor_release_gate EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
 install(TARGETS pr2_control_node DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
@@ -73,6 +85,8 @@ if(BUILD_TESTING)
   add_dependencies(test_effort_chain pr2_test_urdf)
   target_compile_definitions(test_effort_chain PRIVATE TEST_URDF="${TEST_URDF}")
   target_link_libraries(test_effort_chain ${PROJECT_NAME} PkgConfig::TINYXML)
+  ament_add_gtest(test_motor_release_gate test/test_motor_release_gate.cpp)
+  target_link_libraries(test_motor_release_gate pr2_motor_release_gate)
   ament_add_gtest(test_velocity_window test/test_velocity_window.cpp)
   target_include_directories(test_velocity_window PRIVATE include)
 endif()
