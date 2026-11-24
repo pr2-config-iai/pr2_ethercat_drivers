@@ -53,9 +53,9 @@ r_wrist_velocity_controller:
 # wind up unnoticed. For max_effort_fraction 0.1 set them to 3 Nm (arm) and 1 Nm (wrist). A velocity PI is a position PD on the integrated velocity reference: velocity p = position
 # d, velocity i = position p. So the tuned joints use WG's arm trajectory gains (pr2_arm_controllers,
 # also IAI's pr2_whole_body_controller.yaml) that way (D28): elbow, forearm roll and upper arm roll at
-# WG's values; shoulder lift (p 15 for damping) and shoulder pan at a third of WG's i, as at 10 %
-# effort they are limited by the clamp, not the gains. Wrist roll at WG's values; wrist flex at a
-# third of WG's i, as at 10 % effort it could not lift the gripper. Outputs and integrals are clamped to the effort limit;
+# WG's values; shoulder lift (p 25 for damping) and shoulder pan at a third of WG's i, as at 10 %
+# effort they are limited by the clamp, not the gains. Wrist flex and roll at WG's values (at 10 %
+# effort the wrist flex could not always lift the gripper). Outputs and integrals are clamped to the effort limit;
 # save_i_term false so the restart before a release clears them (D26).
 r_arm_velocity_controller:
   ros__parameters:
@@ -67,7 +67,7 @@ r_arm_velocity_controller:
       r_shoulder_pan_joint: {p: 18.0, i: 800.0, d: 0.0, u_clamp_max: 9.0, u_clamp_min: -9.0,
                              i_clamp_max: 9.0, i_clamp_min: -9.0, antiwindup_strategy: conditional_integration,
                              save_i_term: false}
-      r_shoulder_lift_joint: {p: 15.0, i: 400.0, d: 0.0, u_clamp_max: 9.0, u_clamp_min: -9.0,
+      r_shoulder_lift_joint: {p: 25.0, i: 400.0, d: 0.0, u_clamp_max: 9.0, u_clamp_min: -9.0,
                               i_clamp_max: 9.0, i_clamp_min: -9.0, antiwindup_strategy: conditional_integration,
                               save_i_term: false}
       r_upper_arm_roll_joint: {p: 6.0, i: 1000.0, d: 0.0, u_clamp_max: 9.0, u_clamp_min: -9.0,
@@ -79,7 +79,7 @@ r_arm_velocity_controller:
       r_forearm_roll_joint: {p: 6.0, i: 300.0, d: 0.0, u_clamp_max: 9.0, u_clamp_min: -9.0,
                              i_clamp_max: 9.0, i_clamp_min: -9.0, antiwindup_strategy: conditional_integration,
                              save_i_term: false}
-      r_wrist_flex_joint: {p: 4.0, i: 100.0, d: 0.0, u_clamp_max: 3.0, u_clamp_min: -3.0,
+      r_wrist_flex_joint: {p: 4.0, i: 300.0, d: 0.0, u_clamp_max: 3.0, u_clamp_min: -3.0,
                            i_clamp_max: 3.0, i_clamp_min: -3.0, antiwindup_strategy: conditional_integration,
                            save_i_term: false}
       r_wrist_roll_joint: {p: 4.0, i: 300.0, d: 0.0, u_clamp_max: 3.0, u_clamp_min: -3.0,
