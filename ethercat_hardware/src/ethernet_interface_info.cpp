@@ -32,7 +32,8 @@ EthernetInterfaceInfo::EthernetInterfaceInfo() :
   rx_error_index_(-1),
   rx_crc_error_index_(-1),
   rx_frame_error_index_(-1),
-  rx_align_error_index_(-1)
+  rx_align_error_index_(-1),
+  lost_link_count_(0)
 {
   
 }

@@ -12,10 +12,17 @@ Holds every joint of the controller at 0 rad/s and moves one of them: hold, +vel
   - any other joint of the robot moves faster than --rest-velocity,
   - /joint_states stops, or the controller is not listening.
 
+With --sine F1,F2,... the moved joint gets velocity sines instead of steps: for each frequency
+--cycles periods of --velocity * cos(2 pi f t), faded in and out over one period each (so the
+joint swings about where it started), with holds in between. Prints per frequency the amplitude
+ratio and phase lag of the measured velocity and the largest velocity and position errors.
+
 Needs the controller active and the motors released. Writes every sample to --csv.
 
   velocity_step_test.py --controller r_arm_velocity_controller --joint r_forearm_roll_joint \\
       --velocity 0.3 --step 2
+  velocity_step_test.py --controller r_arm_velocity_controller --joint r_elbow_flex_joint \\
+      --velocity 0.2 --sine 0.25,0.5,1
   velocity_step_test.py --controller r_arm_velocity_controller --joint none --hold 5   # hold only
 """
 import argparse
@@ -49,10 +56,15 @@ ap.add_argument('--margin', type=float, default=0.1, help='rad inside the soft l
 ap.add_argument('--others-window', type=float, default=0.15, help='rad (default 0.15)')
 ap.add_argument('--others-velocity', type=float, default=0.3, help='rad/s (default 0.3)')
 ap.add_argument('--rest-velocity', type=float, default=0.5, help='rad/s (default 0.5)')
+ap.add_argument('--sine', default=None, help='comma separated frequencies in Hz: sines instead of steps')
+ap.add_argument('--cycles', type=int, default=4, help='full-amplitude periods per sine frequency (default 4)')
 ap.add_argument('--csv', default='velocity_step_test.csv')
 args = ap.parse_args()
 target = None if args.joint == 'none' else args.joint
 max_velocity = args.max_velocity if args.max_velocity is not None else 2 * abs(args.velocity) + 0.2
+sines = [float(f) for f in args.sine.split(',')] if args.sine else []
+if sines and not target:
+    ap.error('--sine needs a --joint')
 
 rclpy.init()
 node = rclpy.create_node('velocity_step_test')
@@ -154,26 +166,52 @@ try:
                 reason = '%s at %.3f is not inside its allowed range [%.3f, %.3f]' % (target, start[target], lo, hi)
             else:
                 print('%s starts at %+.3f, allowed [%+.3f, %+.3f]' % (target, start[target], lo, hi))
-        schedule = [(0.0, args.hold)]
-        if target:
-            schedule += [(args.velocity, args.step), (0.0, args.pause), (-args.velocity, args.step), (0.0, args.pause)]
+        def constant(v):
+            return lambda t: v
+
+        def sine(f):
+            period = 1.0 / f
+            total = (args.cycles + 2) * period
+
+            def ref(t):
+                # Fade in and out over one period each (raised cosine), full amplitude in between.
+                env = min(1.0, t / period, (total - t) / period)
+                env = 0.5 - 0.5 * math.cos(math.pi * max(0.0, env))
+                return args.velocity * env * math.cos(2 * math.pi * f * t)
+            return ref, total
+
+        schedule = [(constant(0.0), args.hold, 0.0, None)]
+        if target and sines:
+            for f in sines:
+                ref, total = sine(f)
+                schedule += [(ref, total, args.velocity, f), (constant(0.0), args.pause, 0.0, None)]
+        elif target:
+            schedule += [(constant(args.velocity), args.step, args.velocity, None), (constant(0.0), args.pause, 0.0, None),
+                         (constant(-args.velocity), args.step, -args.velocity, None), (constant(0.0), args.pause, 0.0, None)]
         t0 = time.monotonic()
         with open(args.csv, 'w') as log:
             log.write('t,ref,' + ','.join('%s_pos,%s_vel,%s_eff' % (d, d, d) for d in dofs) + '\n')
-            for ref, duration in schedule:
+            for ref_fn, duration, label, freq in schedule:
                 if reason:
                     break
-                print('%s %+.2f rad/s, others 0, for %.1f s' % (target or 'all', ref, duration))
+                if freq:
+                    print('%s %.2f rad/s sine at %.2f Hz, others 0, for %.1f s' % (target, label, freq, duration))
+                else:
+                    print('%s %+.2f rad/s, others 0, for %.1f s' % (target or 'all', label, duration))
                 rows = []
-                stats.append((ref, rows))
-                end = time.monotonic() + duration
+                stats.append((label, freq, rows))
+                phase_start = time.monotonic()
+                end = phase_start + duration
                 while time.monotonic() < end and not reason:
+                    t_phase = time.monotonic() - phase_start
+                    ref = ref_fn(t_phase)
                     send(ref)
                     msg = latest['msg']
                     if time.monotonic() - latest['t'] > STALE:
                         reason = '/joint_states stale'
                         break
                     row = {d: (msg.position[idx[d]], msg.velocity[idx[d]], msg.effort[idx[d]]) for d in dofs}
+                    row['_t'], row['_ref'] = t_phase, ref
                     rows.append(row)
                     log.write('%.3f,%.3f,' % (time.monotonic() - t0, ref) +
                               ','.join('%.5f,%.5f,%.5f' % row[d] for d in dofs) + '\n')
@@ -203,10 +241,38 @@ finally:
     node.destroy_node()
     rclpy.shutdown()
 
-for ref, rows in stats:
+def sine_fit(rows, f, key):
+    # Least squares amplitude and phase of rows[key] at frequency f.
+    w = 2 * math.pi * f
+    c = sum(key(r) * math.cos(w * r['_t']) for r in rows)
+    s = sum(key(r) * math.sin(w * r['_t']) for r in rows)
+    n = len(rows) / 2.0
+    return math.hypot(c, s) / n, math.atan2(s, c)
+
+
+for label, freq, rows in stats:
     if not rows:
         continue
-    line = 'ref %+.2f, %d samples:' % (ref, len(rows))
+    if freq:
+        period = 1.0 / freq
+        full = [r for r in rows if period <= r['_t'] <= (args.cycles + 1) * period]
+        if len(full) > 10:
+            a_ref, ph_ref = sine_fit(full, freq, lambda r: r['_ref'])
+            a_vel, ph_vel = sine_fit(full, freq, lambda r: r[target][1])
+            lag = math.degrees(math.atan2(math.sin(ph_vel - ph_ref), math.cos(ph_vel - ph_ref)))
+            x0 = rows[0][target][0]
+            pos_ref, pos_err, prev_t = 0.0, 0.0, rows[0]['_t']
+            for r in rows:
+                pos_ref += r['_ref'] * (r['_t'] - prev_t)
+                prev_t = r['_t']
+                pos_err = max(pos_err, abs(r[target][0] - x0 - pos_ref))
+            print('sine %.2f Hz (peak acceleration %.2f rad/s^2): amplitude ratio %.2f, lag %+.0f deg, '
+                  'max |velocity error| %.3f rad/s, max |position error| %.1f mrad, max |effort| %.2f Nm' % (
+                      freq, label * 2 * math.pi * freq, a_vel / a_ref, lag,
+                      max(abs(r[target][1] - r['_ref']) for r in full), 1000 * pos_err,
+                      max(abs(r[target][2]) for r in rows)))
+        continue
+    line = 'ref %+.2f, %d samples:' % (label, len(rows))
     if target:
         tail = rows[len(rows) // 2:]
         line += ' %s moved %+.3f rad, velocity 2nd half %+.3f rad/s, effort %+.2f Nm |' % (

@@ -311,6 +311,7 @@ private:
 
   bool halt_motors_;
   unsigned int reset_state_;
+  bool halt_last_update_;  //!< halt argument of the previous update(), to count requests, not cycles
 
   unsigned timeout_;        //!< Timeout (in microseconds) to used for sending/recieving packets once in realtime mode.
   unsigned max_pd_retries_; //!< Max number of times to retry sending process data before halting motors

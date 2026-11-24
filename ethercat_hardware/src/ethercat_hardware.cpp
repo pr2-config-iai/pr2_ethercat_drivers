@@ -82,7 +82,7 @@ EthercatHardware::EthercatHardware(const rclcpp::Node::SharedPtr &node) :
   // uninitialized. ROS 1 never destroyed an EthercatHardware after a failed init() (it exited),
   // but tryInit() can fail early and the destructor then deleted garbage pointers.
   ni_(0), al_(0), em_(0), num_ethercat_devices_(0),
-  this_buffer_(0), prev_buffer_(0), buffers_(0), buffer_size_(0), halt_motors_(true), reset_state_(0), 
+  this_buffer_(0), prev_buffer_(0), buffers_(0), buffer_size_(0), halt_motors_(true), reset_state_(0), halt_last_update_(false), 
   timeout_(0), max_pd_retries_(10),
   diagnostics_publisher_(node_), 
   // latched in ROS 1 -> transient_local
@@ -567,9 +567,15 @@ void EthercatHardware::update(bool reset, bool halt)
 
   if (halt)
   {
-    ++diagnostics_.halt_motors_service_count_;
+    // A caller may keep halt set while the motors are to stay halted (pr2_ros2_control does);
+    // count the requests, not the cycles.
+    if (!halt_last_update_)
+    {
+      ++diagnostics_.halt_motors_service_count_;
+    }
     haltMotors(false /*no error*/, "service request");
   }
+  halt_last_update_ = halt;
 
   // Resetting devices should clear device errors and release devices from halt.
   // To reduce load on power system, release devices from halt, one at a time 

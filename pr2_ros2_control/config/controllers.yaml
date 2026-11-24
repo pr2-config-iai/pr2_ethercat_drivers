@@ -47,11 +47,16 @@ r_wrist_velocity_controller:
                            i_clamp_max: 1.0, i_clamp_min: -1.0, antiwindup_strategy: conditional_integration,
                            save_i_term: false}
 
-# Provisional, for the D27 tests at max_effort_fraction 0.1 (3 Nm per arm joint, 1 Nm per wrist
-# joint). Arm joints: WG's calibration controllers' velocity gains (pr2_calibration_controllers.yaml),
-# the velocity PIDs that ran on every PR2; their velocity config's gains are not trusted (D23).
-# Wrist: D23. Outputs and integrals are clamped to the effort limit (integral to the calibration
-# clamp where that is smaller); save_i_term false so the restart before a release clears them (D26).
+# Provisional, for the D28 tests at max_effort_fraction 0.3 (9 Nm per arm joint, 3 Nm per wrist
+# joint). The output and integral clamps must match the effort fraction: conditional integration only
+# stops at the controller's own clamp, so with a clamp above the hardware limit the integral would
+# wind up unnoticed. For max_effort_fraction 0.1 set them to 3 Nm (arm) and 1 Nm (wrist). A velocity PI is a position PD on the integrated velocity reference: velocity p = position
+# d, velocity i = position p. So the tuned joints use WG's arm trajectory gains (pr2_arm_controllers,
+# also IAI's pr2_whole_body_controller.yaml) that way (D28): elbow, forearm roll and upper arm roll at
+# WG's values; shoulder lift (p 15 for damping) and shoulder pan at a third of WG's i, as at 10 %
+# effort they are limited by the clamp, not the gains. Wrist roll at WG's values; wrist flex at a
+# third of WG's i, as at 10 % effort it could not lift the gripper. Outputs and integrals are clamped to the effort limit;
+# save_i_term false so the restart before a release clears them (D26).
 r_arm_velocity_controller:
   ros__parameters:
     dof_names: [r_shoulder_pan_joint, r_shoulder_lift_joint, r_upper_arm_roll_joint, r_elbow_flex_joint,
@@ -59,24 +64,24 @@ r_arm_velocity_controller:
     command_interface: effort
     reference_and_state_interfaces: [velocity]
     gains:
-      r_shoulder_pan_joint: {p: 7.0, i: 0.5, d: 0.0, u_clamp_max: 3.0, u_clamp_min: -3.0,
-                             i_clamp_max: 1.0, i_clamp_min: -1.0, antiwindup_strategy: conditional_integration,
+      r_shoulder_pan_joint: {p: 18.0, i: 800.0, d: 0.0, u_clamp_max: 9.0, u_clamp_min: -9.0,
+                             i_clamp_max: 9.0, i_clamp_min: -9.0, antiwindup_strategy: conditional_integration,
                              save_i_term: false}
-      r_shoulder_lift_joint: {p: 9.0, i: 1.0, d: 0.0, u_clamp_max: 3.0, u_clamp_min: -3.0,
-                              i_clamp_max: 3.0, i_clamp_min: -3.0, antiwindup_strategy: conditional_integration,
+      r_shoulder_lift_joint: {p: 15.0, i: 400.0, d: 0.0, u_clamp_max: 9.0, u_clamp_min: -9.0,
+                              i_clamp_max: 9.0, i_clamp_min: -9.0, antiwindup_strategy: conditional_integration,
                               save_i_term: false}
-      r_upper_arm_roll_joint: {p: 6.0, i: 0.2, d: 0.0, u_clamp_max: 3.0, u_clamp_min: -3.0,
-                               i_clamp_max: 2.0, i_clamp_min: -2.0, antiwindup_strategy: conditional_integration,
+      r_upper_arm_roll_joint: {p: 6.0, i: 1000.0, d: 0.0, u_clamp_max: 9.0, u_clamp_min: -9.0,
+                               i_clamp_max: 9.0, i_clamp_min: -9.0, antiwindup_strategy: conditional_integration,
                                save_i_term: false}
-      r_elbow_flex_joint: {p: 6.0, i: 0.2, d: 0.0, u_clamp_max: 3.0, u_clamp_min: -3.0,
-                           i_clamp_max: 1.0, i_clamp_min: -1.0, antiwindup_strategy: conditional_integration,
+      r_elbow_flex_joint: {p: 4.0, i: 700.0, d: 0.0, u_clamp_max: 9.0, u_clamp_min: -9.0,
+                           i_clamp_max: 9.0, i_clamp_min: -9.0, antiwindup_strategy: conditional_integration,
                            save_i_term: false}
-      r_forearm_roll_joint: {p: 5.0, i: 0.0, d: 0.0, u_clamp_max: 3.0, u_clamp_min: -3.0,
-                             i_clamp_max: 0.0, i_clamp_min: 0.0, antiwindup_strategy: conditional_integration,
+      r_forearm_roll_joint: {p: 6.0, i: 300.0, d: 0.0, u_clamp_max: 9.0, u_clamp_min: -9.0,
+                             i_clamp_max: 9.0, i_clamp_min: -9.0, antiwindup_strategy: conditional_integration,
                              save_i_term: false}
-      r_wrist_flex_joint: {p: 4.0, i: 5.0, d: 0.0, u_clamp_max: 1.0, u_clamp_min: -1.0,
-                           i_clamp_max: 1.0, i_clamp_min: -1.0, antiwindup_strategy: conditional_integration,
+      r_wrist_flex_joint: {p: 4.0, i: 100.0, d: 0.0, u_clamp_max: 3.0, u_clamp_min: -3.0,
+                           i_clamp_max: 3.0, i_clamp_min: -3.0, antiwindup_strategy: conditional_integration,
                            save_i_term: false}
-      r_wrist_roll_joint: {p: 4.0, i: 5.0, d: 0.0, u_clamp_max: 1.0, u_clamp_min: -1.0,
-                           i_clamp_max: 1.0, i_clamp_min: -1.0, antiwindup_strategy: conditional_integration,
+      r_wrist_roll_joint: {p: 4.0, i: 300.0, d: 0.0, u_clamp_max: 3.0, u_clamp_min: -3.0,
+                           i_clamp_max: 3.0, i_clamp_min: -3.0, antiwindup_strategy: conditional_integration,
                            save_i_term: false}
