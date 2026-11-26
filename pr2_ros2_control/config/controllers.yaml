@@ -2,6 +2,12 @@ controller_manager:
   ros__parameters:
     update_rate: 1000  # Hz, like ROS 1 pr2_ethercat
     # thread_priority defaults to the SCHED_FIFO maximum (like ROS 1); lock_memory defaults to true.
+    # No console warning per overrun: ROS 1 only counted them, and so does pr2_control_node's
+    # "Realtime Control Loop" diagnostic. With all controllers running, a cycle goes over 1 ms about
+    # a dozen times a minute when the EtherCAT round trip (as in ROS 1: 650 us average, up to about
+    # 930 us) meets the controllers' 40 to 130 us; the next cycle starts at once (D34).
+    overruns:
+      print_warnings: false
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
@@ -16,28 +22,28 @@ controller_manager:
     r_wrist_velocity_controller:
       type: pid_controller/PidController
 
-    # Not started either. All seven right arm joints in commanded_joints (D27); references on
+    # Started by pr2_ros2_bringup's pr2.launch.py (not by this package's launch). All seven right arm joints in commanded_joints (D27); references on
     # /r_arm_velocity_controller/reference. Claims the wrist too: not together with the one above.
     r_arm_velocity_controller:
       type: pid_controller/PidController
 
-    # Not started either. The left arm's counterpart: all seven left arm joints in commanded_joints;
+    # Started by pr2_ros2_bringup's pr2.launch.py (not by this package's launch). The left arm's counterpart: all seven left arm joints in commanded_joints;
     # references on /l_arm_velocity_controller/reference. Same gains as the right arm (WG used the
     # same for both); can run together with r_arm_velocity_controller (disjoint joints).
     l_arm_velocity_controller:
       type: pid_controller/PidController
 
-    # Not started either. torso_lift_joint in commanded_joints; references (m/s) on
+    # Started by pr2_ros2_bringup's pr2.launch.py (not by this package's launch). torso_lift_joint in commanded_joints; references (m/s) on
     # /torso_velocity_controller/reference.
     torso_velocity_controller:
       type: pid_controller/PidController
 
-    # Not started either. Both head joints in commanded_joints; references on
+    # Started by pr2_ros2_bringup's pr2.launch.py (not by this package's launch). Both head joints in commanded_joints; references on
     # /head_velocity_controller/reference.
     head_velocity_controller:
       type: pid_controller/PidController
 
-    # Not started either. The ROS 1 base controller and odometry (pr2_mechanism_controllers).
+    # Started by pr2_ros2_bringup's pr2.launch.py (not by this package's launch). The ROS 1 base controller and odometry (pr2_mechanism_controllers).
     # base_controller needs the 12 caster and wheel joints in commanded_joints; Twist commands on
     # /base_controller/command. base_odometry only reads; nav_msgs/Odometry on /base_odometry/odom.
     base_controller:
@@ -45,9 +51,10 @@ controller_manager:
     base_odometry:
       type: pr2_mechanism_controllers/Pr2Odometry
 
-    # Not started either. The ROS 1 gripper controllers (pr2_mechanism_controllers); they need
-    # r_gripper_joint / l_gripper_joint in commanded_joints. pr2_controllers_msgs/Pr2GripperCommand
-    # on /r_gripper_controller/command; the action servers are pr2_ros2_bringup grippers.launch.py.
+    # Started by pr2_ros2_bringup's pr2.launch.py (not by this package's launch). The ROS 1 gripper controllers (pr2_mechanism_controllers);
+    # they need r_gripper_joint / l_gripper_joint in commanded_joints.
+    # pr2_controllers_msgs/Pr2GripperCommand on /r_gripper_controller/command; the action servers are
+    # pr2_ros2_bringup grippers.launch.py.
     r_gripper_controller:
       type: pr2_mechanism_controllers/Pr2GripperController
     l_gripper_controller:
@@ -56,6 +63,26 @@ controller_manager:
 joint_state_broadcaster:
   ros__parameters:
     update_rate: 100  # ROS 1 published /joint_states at 100 Hz
+    # Explicit, so that it claims only the hardware's interfaces: with joints and interfaces empty it
+    # takes every state interface that exists when it is configured, including those that
+    # pid_controller exports for chaining, and the controller manager then refuses to restart those
+    # controllers (D26, the restart before a motor release) while it runs. The 45 joints of the
+    # <ros2_control> block (urdf/pr2_ros2_control.xacro), as ROS 1 published them (D34).
+    joints: [bl_caster_l_wheel_joint, bl_caster_r_wheel_joint, bl_caster_rotation_joint,
+             br_caster_l_wheel_joint, br_caster_r_wheel_joint, br_caster_rotation_joint,
+             fl_caster_l_wheel_joint, fl_caster_r_wheel_joint, fl_caster_rotation_joint,
+             fr_caster_l_wheel_joint, fr_caster_r_wheel_joint, fr_caster_rotation_joint,
+             torso_lift_joint, torso_lift_motor_screw_joint, head_pan_joint, head_tilt_joint,
+             laser_tilt_mount_joint, l_shoulder_pan_joint, l_shoulder_lift_joint,
+             l_upper_arm_roll_joint, l_elbow_flex_joint, l_forearm_roll_joint, l_wrist_flex_joint,
+             l_wrist_roll_joint, l_gripper_joint, l_gripper_motor_screw_joint,
+             l_gripper_motor_slider_joint, l_gripper_l_finger_joint, l_gripper_r_finger_joint,
+             l_gripper_l_finger_tip_joint, l_gripper_r_finger_tip_joint, r_shoulder_pan_joint,
+             r_shoulder_lift_joint, r_upper_arm_roll_joint, r_elbow_flex_joint,
+             r_forearm_roll_joint, r_wrist_flex_joint, r_wrist_roll_joint, r_gripper_joint,
+             r_gripper_motor_screw_joint, r_gripper_motor_slider_joint, r_gripper_l_finger_joint,
+             r_gripper_r_finger_joint, r_gripper_l_finger_tip_joint, r_gripper_r_finger_tip_joint]
+    interfaces: [position, velocity, effort]
 
 r_wrist_roll_effort_controller:
   ros__parameters:
@@ -79,10 +106,10 @@ r_wrist_velocity_controller:
                            i_clamp_max: 1.0, i_clamp_min: -1.0, antiwindup_strategy: conditional_integration,
                            save_i_term: false}
 
-# Provisional, for the D28 tests at max_effort_fraction 0.3 (9 Nm per arm joint, 3 Nm per wrist
-# joint). The output and integral clamps must match the effort fraction: conditional integration only
-# stops at the controller's own clamp, so with a clamp above the hardware limit the integral would
-# wind up unnoticed. For max_effort_fraction 0.1 set them to 3 Nm (arm) and 1 Nm (wrist).
+# Provisional, from the D28 tests at max_effort_fraction 0.3 (9 Nm per arm joint, 3 Nm per wrist
+# joint). The clamps keep those limits at max_effort_fraction 1.0 (D34): conditional integration
+# stops at the controller's own clamp, so a clamp at or below the hardware limit cannot wind up; one
+# above it would wind up unnoticed (with max_effort_fraction 0.1 set them to 3 Nm and 1 Nm).
 # A velocity PI is a position PD on the integrated velocity reference: velocity p = position
 # d, velocity i = position p. So the tuned joints use WG's arm trajectory gains (pr2_arm_controllers,
 # also IAI's pr2_whole_body_controller.yaml) that way (D28): elbow, forearm roll and upper arm roll at
@@ -156,7 +183,8 @@ l_arm_velocity_controller:
 # 6000 N of 10000 N (at 0.3 it could not lift itself: about 2600 N friction both ways plus its
 # weight), the head tilt 10.8 Nm of 18 Nm (at 0.3, 5.4 Nm only balanced the head's weight looking
 # down, past its soft limit, so the soft limit safety could not lift it back into range). The head
-# pan stays at 0.79 Nm (0.3 of 2.645 Nm): a clamp below the hardware limit cannot wind up.
+# pan stays at 0.79 Nm (0.3 of 2.645 Nm): a clamp below the hardware limit cannot wind up. The same
+# clamps hold at max_effort_fraction 1.0 (D34).
 # save_i_term false (D26).
 torso_velocity_controller:
   ros__parameters:

@@ -4,6 +4,14 @@ Changelog for package pr2_ros2_control
 
 2.0.0 (unreleased)
 ------------------
+* ``joint_state_broadcaster`` lists its 45 joints and position, velocity and effort explicitly:
+  with empty lists it also claimed the state interfaces ``pid_controller`` exports when it was
+  configured after them, and the controller manager then refused the restart before a motor
+  release (D34).
+* ``overruns.print_warnings: false``: no console warning per overrun (counted in the "Realtime
+  Control Loop" diagnostic, as in ROS 1). The arm, torso and head controllers are started by
+  ``pr2_ros2_bringup``'s ``pr2.launch.py`` at ``max_effort_fraction`` 1.0; their clamps keep the
+  tested limits.
 * State interface ``<joint>/calibrated`` on every joint: 1 when calibrated or not in need of
   calibration, else 0 (ROS 1 ``JointState::calibrated_``), for controllers that must not start
   uncalibrated (the base controller and odometry). The calibration is now worked out when the
