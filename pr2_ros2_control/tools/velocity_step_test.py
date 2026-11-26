@@ -17,7 +17,8 @@ With --sine F1,F2,... the moved joint gets velocity sines instead of steps: for 
 joint swings about where it started), with holds in between. Prints per frequency the amplitude
 ratio and phase lag of the measured velocity and the largest velocity and position errors.
 
-Needs the controller active and the motors released. Writes every sample to --csv.
+Needs the controller active and the motors released. Writes every sample to --csv. With
+--keep-running a normal end leaves the motors on at 0 rad/s (only a watchdog trip halts).
 
   velocity_step_test.py --controller r_arm_velocity_controller --joint r_forearm_roll_joint \\
       --velocity 0.3 --step 2
@@ -58,6 +59,9 @@ ap.add_argument('--others-velocity', type=float, default=0.3, help='rad/s (defau
 ap.add_argument('--rest-velocity', type=float, default=0.5, help='rad/s (default 0.5)')
 ap.add_argument('--sine', default=None, help='comma separated frequencies in Hz: sines instead of steps')
 ap.add_argument('--cycles', type=int, default=4, help='full-amplitude periods per sine frequency (default 4)')
+ap.add_argument('--keep-running', action='store_true',
+                help='at the end send 0 and leave the motors on; halt only when the watchdog trips. For '
+                     'joints the integral holds against gravity (head tilt), which a halt and restart clears')
 ap.add_argument('--csv', default='velocity_step_test.csv')
 args = ap.parse_args()
 target = None if args.joint == 'none' else args.joint
@@ -235,7 +239,12 @@ try:
                                 break
                     time.sleep(0.01)
 finally:
-    do_halt(reason or 'sequence finished')
+    if reason or not args.keep_running or not dofs:
+        do_halt(reason or 'sequence finished')
+    else:
+        for _ in range(5):
+            send(0.0)
+        print('sequence finished, motors left on (--keep-running), all references 0')
     ex.shutdown()
     spin_thread.join()
     node.destroy_node()
@@ -279,9 +288,10 @@ for label, freq, rows in stats:
             target, rows[-1][target][0] - rows[0][target][0], sum(r[target][1] for r in tail) / len(tail),
             sum(r[target][2] for r in rows) / len(rows))
     others = [d for d in dofs if d != target]
-    worst = max(others, key=lambda d: max(abs(r[d][0] - rows[0][d][0]) for r in rows))
-    line += ' others: largest drift %s %+.4f rad; largest |effort| %s' % (
-        worst, max((r[worst][0] - rows[0][worst][0] for r in rows), key=abs),
-        ', '.join('%s %.2f' % (d[2:-6] if d.startswith(('r_', 'l_')) and d.endswith('_joint') else d, max(abs(r[d][2]) for r in rows)) for d in others))
+    if others:
+        worst = max(others, key=lambda d: max(abs(r[d][0] - rows[0][d][0]) for r in rows))
+        line += ' others: largest drift %s %+.4f rad; largest |effort| %s' % (
+            worst, max((r[worst][0] - rows[0][worst][0] for r in rows), key=abs),
+            ', '.join('%s %.2f' % (d[2:-6] if d.startswith(('r_', 'l_')) and d.endswith('_joint') else d, max(abs(r[d][2]) for r in rows)) for d in others))
     print(line)
 sys.exit(1 if reason else 0)

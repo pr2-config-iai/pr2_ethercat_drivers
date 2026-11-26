@@ -10,6 +10,10 @@ Changelog for package pr2_ros2_control
   activate), and the motors are reset after that; if the restart fails they stay halted. The
   component and the node meet in ``MotorReleaseGate`` (library ``pr2_motor_release_gate``).
   ``r_wrist_velocity_controller`` sets ``save_i_term: false`` so that the restart clears the integral.
+* ``torso_velocity_controller`` and ``head_velocity_controller`` with WG's torso and head trajectory
+  gains in velocity form, clamps for ``max_effort_fraction:=0.6`` (decision D31).
+* ``velocity_step_test.py --keep-running``: a normal end leaves the motors on at 0 rad/s (D31); the
+  summary no longer fails for a controller with one joint.
 * ``tools/velocity_sine_analysis.py``: response, arm impedance and clamp time per sine
   frequency from ``velocity_step_test.py --sine`` CSVs; rigid and two-mass fit and closed-loop
   predictions (decision D30).

@@ -27,6 +27,16 @@ controller_manager:
     l_arm_velocity_controller:
       type: pid_controller/PidController
 
+    # Not started either. torso_lift_joint in commanded_joints; references (m/s) on
+    # /torso_velocity_controller/reference.
+    torso_velocity_controller:
+      type: pid_controller/PidController
+
+    # Not started either. Both head joints in commanded_joints; references on
+    # /head_velocity_controller/reference.
+    head_velocity_controller:
+      type: pid_controller/PidController
+
 joint_state_broadcaster:
   ros__parameters:
     update_rate: 100  # ROS 1 published /joint_states at 100 Hz
@@ -122,3 +132,35 @@ l_arm_velocity_controller:
       l_wrist_roll_joint: {p: 4.0, i: 300.0, d: 0.0, u_clamp_max: 3.0, u_clamp_min: -3.0,
                            i_clamp_max: 3.0, i_clamp_min: -3.0, antiwindup_strategy: conditional_integration,
                            save_i_term: false}
+
+# WG's trajectory gains in velocity form as for the arms (D28): velocity p = position d, velocity
+# i = position p (all three tested at WG's full value). Torso from
+# pr2_torso_controller.yaml (p 1e7, d 1e6; prismatic, N and m/s), head from pr2_head_controller.yaml
+# (pan p 25 d 2, tilt p 100 d 3). Clamps for max_effort_fraction:=0.6, which both need: the torso
+# 6000 N of 10000 N (at 0.3 it could not lift itself: about 2600 N friction both ways plus its
+# weight), the head tilt 10.8 Nm of 18 Nm (at 0.3, 5.4 Nm only balanced the head's weight looking
+# down, past its soft limit, so the soft limit safety could not lift it back into range). The head
+# pan stays at 0.79 Nm (0.3 of 2.645 Nm): a clamp below the hardware limit cannot wind up.
+# save_i_term false (D26).
+torso_velocity_controller:
+  ros__parameters:
+    dof_names: [torso_lift_joint]
+    command_interface: effort
+    reference_and_state_interfaces: [velocity]
+    gains:
+      torso_lift_joint: {p: 1000000.0, i: 10000000.0, d: 0.0, u_clamp_max: 6000.0, u_clamp_min: -6000.0,
+                         i_clamp_max: 6000.0, i_clamp_min: -6000.0, antiwindup_strategy: conditional_integration,
+                         save_i_term: false}
+
+head_velocity_controller:
+  ros__parameters:
+    dof_names: [head_pan_joint, head_tilt_joint]
+    command_interface: effort
+    reference_and_state_interfaces: [velocity]
+    gains:
+      head_pan_joint: {p: 2.0, i: 25.0, d: 0.0, u_clamp_max: 0.79, u_clamp_min: -0.79,
+                       i_clamp_max: 0.79, i_clamp_min: -0.79, antiwindup_strategy: conditional_integration,
+                       save_i_term: false}
+      head_tilt_joint: {p: 3.0, i: 100.0, d: 0.0, u_clamp_max: 10.8, u_clamp_min: -10.8,
+                        i_clamp_max: 10.8, i_clamp_min: -10.8, antiwindup_strategy: conditional_integration,
+                        save_i_term: false}
