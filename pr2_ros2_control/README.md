@@ -50,8 +50,10 @@ ros2 launch pr2_ros2_control pr2_control.launch.py commanding_enabled:=true \
   0.25,0.5,1,2` sends velocity sines and prints amplitude ratio and lag per frequency (D28).
 - `config/controllers.yaml` defines `r_wrist_roll_effort_controller`
   (`effort_controllers/JointGroupEffortController`) and `r_wrist_velocity_controller`
-  (`pid_controller/PidController` on both wrist joints, provisional gains from D23); neither is
-  started by the launch file.
+  (`pid_controller/PidController` on both wrist joints, provisional gains from D23), and
+  `r_arm_velocity_controller` and `l_arm_velocity_controller` (all seven joints of one arm, WG's
+  arm trajectory gains in velocity form, clamps for `max_effort_fraction:=0.3`; D28, D29). None is
+  started by the launch file; the two arm controllers can run together.
 
 ## Running
 
