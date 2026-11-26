@@ -48,6 +48,11 @@ ros2 launch pr2_ros2_control pr2_control.launch.py commanding_enabled:=true \
   0 rad/s, steps one joint up and back, and halts the motors at the end or as soon as a joint
   moves too fast, too far or out of its soft limits (D27). `--joint none` only holds; `--sine
   0.25,0.5,1,2` sends velocity sines and prints amplitude ratio and lag per frequency (D28).
+- **Sine analysis:** `ros2 run pr2_ros2_control velocity_sine_analysis.py --joint J run.csv:P:I ...
+  --fit` reads those CSVs and prints per frequency the response, the arm's apparent inertia and
+  damping, and the time at the clamp; `--fit` fits a rigid and a two-mass arm and compares their
+  closed loop with the measurement, `--predict P:I` adds other gains with and without
+  feedforward (D30).
 - `config/controllers.yaml` defines `r_wrist_roll_effort_controller`
   (`effort_controllers/JointGroupEffortController`) and `r_wrist_velocity_controller`
   (`pid_controller/PidController` on both wrist joints, provisional gains from D23), and
