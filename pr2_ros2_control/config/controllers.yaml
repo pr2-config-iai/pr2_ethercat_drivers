@@ -45,6 +45,14 @@ controller_manager:
     base_odometry:
       type: pr2_mechanism_controllers/Pr2Odometry
 
+    # Not started either. The ROS 1 gripper controllers (pr2_mechanism_controllers); they need
+    # r_gripper_joint / l_gripper_joint in commanded_joints. pr2_controllers_msgs/Pr2GripperCommand
+    # on /r_gripper_controller/command; the action servers are pr2_ros2_bringup grippers.launch.py.
+    r_gripper_controller:
+      type: pr2_mechanism_controllers/Pr2GripperController
+    l_gripper_controller:
+      type: pr2_mechanism_controllers/Pr2GripperController
+
 joint_state_broadcaster:
   ros__parameters:
     update_rate: 100  # ROS 1 published /joint_states at 100 Hz
@@ -225,3 +233,14 @@ base_odometry:
     odom_publish_rate: 100.0
     state_publish_rate: 1.0
     odometer_publish_rate: 1.0
+
+# ROS 1 Pr2GripperController, pr2_controller_configuration/pr2_gripper_controllers.yaml of the
+# ROS 1 robot: PD on the gap, effort limited to the command's max_effort (< 0: unlimited).
+r_gripper_controller:
+  ros__parameters:
+    joint: r_gripper_joint
+    pid: {p: 10000.0, d: 1000.0}
+l_gripper_controller:
+  ros__parameters:
+    joint: l_gripper_joint
+    pid: {p: 10000.0, d: 1000.0}

@@ -11,6 +11,9 @@ Changelog for package pr2_ros2_control
 * ``base_controller`` (``pr2_mechanism_controllers/Pr2BaseController2``) and ``base_odometry``
   (``pr2_mechanism_controllers/Pr2Odometry``) in ``controllers.yaml``, not started by the launch,
   with the values of the ROS 1 robot's ``pr2_base_controller2.yaml`` and ``pr2_odometry.yaml``.
+* ``r_gripper_controller`` and ``l_gripper_controller``
+  (``pr2_mechanism_controllers/Pr2GripperController``) in ``controllers.yaml``, not started by the
+  launch, with the ROS 1 robot's ``pr2_gripper_controllers.yaml`` gains (p 10000, d 1000).
 * As ROS 1's controller manager, controllers start fresh when halted motors are released
   (decision D26): with commanding enabled, a reset of halted motors first has ``pr2_control_node``
   restart the active controllers that claim command interfaces (one switch, deactivate and
