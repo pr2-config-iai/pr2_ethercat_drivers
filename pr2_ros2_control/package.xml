@@ -32,6 +32,7 @@
   <test_depend>xacro</test_depend>
 
   <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>pr2_mechanism_controllers</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>xacro</exec_depend>
   <exec_depend>iai_pr2_description</exec_depend>

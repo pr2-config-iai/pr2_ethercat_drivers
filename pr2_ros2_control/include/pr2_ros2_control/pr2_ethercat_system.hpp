@@ -99,6 +99,7 @@ private:
   {
     pr2_mechanism_model::JointState *joint = nullptr;
     hardware_interface::StateInterface::SharedPtr position, velocity, effort;
+    hardware_interface::StateInterface::SharedPtr calibrated;  // 1: calibrated or needs none
     hardware_interface::CommandInterface::SharedPtr effort_command;
     bool commanded = false;          // listed in commanded_joints
     bool claimed = false;            // its effort interface is claimed by a controller

@@ -105,7 +105,10 @@ vice versa. If the EtherCAT chain cannot be brought up, the controller manager e
 There is no calibration routine yet. At startup the component uses the zero offsets that ROS 1's
 calibration controllers stored on the motor boards, which survive as long as the boards keep power.
 It sets each joint's reference position from its URDF `<calibration>` edge, as the ROS 1 controllers
-did. Joints without a stored offset are listed as "Not calibrated" when the component activates.
+did. Joints without a stored offset are listed as "Not calibrated" when the component is
+configured, and get no effort. Each joint also has the state interface `calibrated`: 1 when calibrated or
+not in need of calibration, else 0 (ROS 1's `JointState::calibrated_`). The base controller and
+odometry refuse to activate with an uncalibrated caster, as in ROS 1.
 After a full power cycle, run the ROS 1 robot once to calibrate.
 
 ## Parameters (`<hardware>` in the `<ros2_control>` block, see `urdf/pr2_ros2_control.xacro`)

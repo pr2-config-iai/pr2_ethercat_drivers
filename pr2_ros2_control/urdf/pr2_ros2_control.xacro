@@ -45,6 +45,8 @@
         <state_interface name="position"/>
         <state_interface name="velocity"/>
         <state_interface name="effort"/>
+        <!-- 1 when calibrated or not in need of calibration, else 0 (ROS 1 JointState::calibrated_) -->
+        <state_interface name="calibrated"/>
       </joint>
       <xacro:pr2_ros2_control_state_joints joints="${joints[1:]}"/>
     </xacro:if>

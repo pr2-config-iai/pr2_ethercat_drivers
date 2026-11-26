@@ -37,6 +37,14 @@ controller_manager:
     head_velocity_controller:
       type: pid_controller/PidController
 
+    # Not started either. The ROS 1 base controller and odometry (pr2_mechanism_controllers).
+    # base_controller needs the 12 caster and wheel joints in commanded_joints; Twist commands on
+    # /base_controller/command. base_odometry only reads; nav_msgs/Odometry on /base_odometry/odom.
+    base_controller:
+      type: pr2_mechanism_controllers/Pr2BaseController2
+    base_odometry:
+      type: pr2_mechanism_controllers/Pr2Odometry
+
 joint_state_broadcaster:
   ros__parameters:
     update_rate: 100  # ROS 1 published /joint_states at 100 Hz
@@ -164,3 +172,56 @@ head_velocity_controller:
       head_tilt_joint: {p: 3.0, i: 100.0, d: 0.0, u_clamp_max: 10.8, u_clamp_min: -10.8,
                         i_clamp_max: 10.8, i_clamp_min: -10.8, antiwindup_strategy: conditional_integration,
                         save_i_term: false}
+
+# ROS 1 Pr2BaseController2 with the values the ROS 1 robot runs (pr2_fixes noetic-devel,
+# pr2_controller_configuration/pr2_base_controller2.yaml): IAI's wheel d 11 (WG: 5) and the
+# feedforward terms. Wheel effort = p * (wheel speed caused by the caster's steering error)
+# + d * (wheel speed error), the ROS 1 call order. The unused caster velocity_controller gains are
+# left out. Written out instead of YAML anchors, which the ROS 2 parameter parser does not take.
+base_controller:
+  ros__parameters:
+    caster_names: [fr_caster_rotation_link, fl_caster_rotation_link, bl_caster_rotation_link, br_caster_rotation_link]
+    timeout: 0.2
+    max_translational_acceleration: {x: 2.0, y: 2.0}
+    max_rotational_acceleration: 2.0
+    state_publish_rate: 0.25
+    feedforward_trans: 0.005
+    feedforward_rot: 0.025
+    max_translational_velocity: 1.0
+    max_rotational_velocity: 2.0
+    caster_velocity_filter: {params: {a: [1.0, -0.5], b: [0.5]}}
+    wheel_velocity_filter: {params: {a: [1.0, -0.5], b: [0.5]}}
+    fr_caster_rotation_joint: {position_controller: {p: 100.0, i: 0.0, d: 8.0, i_clamp: 0.0, i_clamp_max: 0.0, i_clamp_min: -0.0}}
+    fl_caster_rotation_joint: {position_controller: {p: 100.0, i: 0.0, d: 8.0, i_clamp: 0.0, i_clamp_max: 0.0, i_clamp_min: -0.0}}
+    bl_caster_rotation_joint: {position_controller: {p: 100.0, i: 0.0, d: 12.0, i_clamp: 0.0}}
+    br_caster_rotation_joint: {position_controller: {p: 100.0, i: 0.0, d: 12.0, i_clamp: 0.0}}
+    fl_caster_l_wheel_joint: {p: 100.0, i: 0.0, d: 11.0, i_clamp: 1.0, i_clamp_max: 1.0, i_clamp_min: -1.0}
+    fl_caster_r_wheel_joint: {p: 100.0, i: 0.0, d: 11.0, i_clamp: 1.0, i_clamp_max: 1.0, i_clamp_min: -1.0}
+    fr_caster_l_wheel_joint: {p: 100.0, i: 0.0, d: 11.0, i_clamp: 1.0, i_clamp_max: 1.0, i_clamp_min: -1.0}
+    fr_caster_r_wheel_joint: {p: 100.0, i: 0.0, d: 11.0, i_clamp: 1.0, i_clamp_max: 1.0, i_clamp_min: -1.0}
+    bl_caster_l_wheel_joint: {p: 100.0, i: 0.0, d: 11.0, i_clamp: 1.0, i_clamp_max: 1.0, i_clamp_min: -1.0}
+    bl_caster_r_wheel_joint: {p: 100.0, i: 0.0, d: 11.0, i_clamp: 1.0, i_clamp_max: 1.0, i_clamp_min: -1.0}
+    br_caster_l_wheel_joint: {p: 100.0, i: 0.0, d: 11.0, i_clamp: 1.0, i_clamp_max: 1.0, i_clamp_min: -1.0}
+    br_caster_r_wheel_joint: {p: 100.0, i: 0.0, d: 11.0, i_clamp: 1.0, i_clamp_max: 1.0, i_clamp_min: -1.0}
+
+# ROS 1 Pr2Odometry, pr2_odometry.yaml of the ROS 1 robot.
+base_odometry:
+  ros__parameters:
+    caster_names: [fr_caster_rotation_link, fl_caster_rotation_link, bl_caster_rotation_link, br_caster_rotation_link]
+    publish_tf: false
+    ils_max_iterations: 3
+    odom_frame: odom
+    base_footprint_frame: base_footprint
+    base_link_frame: base_link
+    x_stddev: 0.002
+    y_stddev: 0.002
+    rotation_stddev: 0.017
+    cov_xy: 0.0
+    cov_xrotation: 0.0
+    cov_yrotation: 0.0
+    verbose: false
+    wheel_radius_multiplier: 1.0
+    caster_calibration_multiplier: 1.0
+    odom_publish_rate: 100.0
+    state_publish_rate: 1.0
+    odometer_publish_rate: 1.0

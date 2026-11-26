@@ -103,9 +103,9 @@ CallbackReturn Pr2EthercatSystem::on_init(const hardware_interface::HardwareComp
     }
     for (const auto &si : joint.state_interfaces)
     {
-      if (si.name != "position" && si.name != "velocity" && si.name != "effort")
+      if (si.name != "position" && si.name != "velocity" && si.name != "effort" && si.name != "calibrated")
       {
-        RCLCPP_ERROR(get_logger(), "Joint '%s': unsupported state interface '%s' (use position, velocity, effort).",
+        RCLCPP_ERROR(get_logger(), "Joint '%s': unsupported state interface '%s' (use position, velocity, effort, calibrated).",
                      joint.name.c_str(), si.name.c_str());
         return CallbackReturn::ERROR;
       }
@@ -273,6 +273,7 @@ CallbackReturn Pr2EthercatSystem::on_configure(const rclcpp_lifecycle::State &)
       if (si.name == "position") h.position = handle;
       else if (si.name == "velocity") h.velocity = handle;
       else if (si.name == "effort") h.effort = handle;
+      else if (si.name == "calibrated") h.calibrated = handle;
     }
     if (!joint.command_interfaces.empty())
     {
@@ -323,6 +324,9 @@ CallbackReturn Pr2EthercatSystem::on_configure(const rclcpp_lifecycle::State &)
     shutdownHardware();
     return CallbackReturn::ERROR;
   }
+  // Here and not on activation: the state interfaces (including <joint>/calibrated) are available
+  // to controllers from now on, and read() runs while inactive too.
+  reportCalibration();
 
   // As ROS 1 pr2_ethercat: ~/reset_motors clears latched board faults and releases a halt (the
   // dashboard, or pr2_run_stop_auto_restart after the e-stop is released); ~/halt_motors halts
@@ -457,6 +461,10 @@ void Pr2EthercatSystem::reportCalibration()
   for (auto &h : handles_)
   {
     h.needs_calibration = needs.count(h.joint) > 0;
+    if (h.calibrated)
+    {
+      std::ignore = set_state(h.calibrated, (!h.needs_calibration || h.joint->calibrated_) ? 1.0 : 0.0, false);
+    }
     if (h.commanded && h.needs_calibration && !h.joint->calibrated_)
     {
       RCLCPP_ERROR(get_logger(), "Commanded joint %s is not calibrated: it gets no effort.", h.joint->joint_->name.c_str());
@@ -477,7 +485,6 @@ CallbackReturn Pr2EthercatSystem::on_activate(const rclcpp_lifecycle::State &)
   {
     return CallbackReturn::ERROR;
   }
-  reportCalibration();
   fault_reported_ = false;
   monitor_started_ = false;  // lifecycle transitions pause read(); don't count that as a slow loop
   startDiagnosticsThread();
@@ -626,6 +633,10 @@ return_type Pr2EthercatSystem::read(const rclcpp::Time &, const rclcpp::Duration
     if (h.position) std::ignore = set_state(h.position, h.joint->position_, false);
     if (h.velocity) std::ignore = set_state(h.velocity, h.joint->velocity_, false);
     if (h.effort) std::ignore = set_state(h.effort, h.joint->measured_effort_, false);
+    if (h.calibrated)
+    {
+      std::ignore = set_state(h.calibrated, (!h.needs_calibration || h.joint->calibrated_) ? 1.0 : 0.0, false);
+    }
   }
 
   // Only the actuators of commanded transmissions may ever be enabled.

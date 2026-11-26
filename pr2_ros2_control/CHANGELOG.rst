@@ -4,6 +4,13 @@ Changelog for package pr2_ros2_control
 
 2.0.0 (unreleased)
 ------------------
+* State interface ``<joint>/calibrated`` on every joint: 1 when calibrated or not in need of
+  calibration, else 0 (ROS 1 ``JointState::calibrated_``), for controllers that must not start
+  uncalibrated (the base controller and odometry). The calibration is now worked out when the
+  component is configured (was: activated), so the interface is right as soon as it exists.
+* ``base_controller`` (``pr2_mechanism_controllers/Pr2BaseController2``) and ``base_odometry``
+  (``pr2_mechanism_controllers/Pr2Odometry``) in ``controllers.yaml``, not started by the launch,
+  with the values of the ROS 1 robot's ``pr2_base_controller2.yaml`` and ``pr2_odometry.yaml``.
 * As ROS 1's controller manager, controllers start fresh when halted motors are released
   (decision D26): with commanding enabled, a reset of halted motors first has ``pr2_control_node``
   restart the active controllers that claim command interfaces (one switch, deactivate and
