@@ -1,0 +1,6 @@
+<library path="pr2_ros2_controllers">
+  <class name="pr2_ros2_control/JointVelocityController" type="pr2_ros2_control::JointVelocityController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>Velocity PI(D) for a group of joints on their effort interfaces (pid_controller's parameters and topics), starting at zero velocity with cleared integrals and with a command timeout to zero velocity (D40).</description>
+  </class>
+</library>

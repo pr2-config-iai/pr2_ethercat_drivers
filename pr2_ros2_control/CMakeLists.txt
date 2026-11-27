@@ -24,6 +24,9 @@ find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(ethercat_hardware REQUIRED)
 find_package(pr2_mechanism_model REQUIRED)
+find_package(control_msgs REQUIRED)
+find_package(control_toolbox REQUIRED)
+find_package(controller_interface REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(TINYXML REQUIRED IMPORTED_TARGET tinyxml)
 
@@ -52,6 +55,23 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 target_link_options(${PROJECT_NAME} PRIVATE -Wl,--no-undefined)
 pluginlib_export_plugin_description_file(hardware_interface pr2_ros2_control_plugins.xml)
 
+# Controllers: the velocity controller of the arms, torso and head (D40).
+add_library(pr2_ros2_controllers SHARED src/joint_velocity_controller.cpp)
+target_include_directories(pr2_ros2_controllers PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include/${PROJECT_NAME}>)
+target_link_libraries(pr2_ros2_controllers PUBLIC
+  controller_interface::controller_interface
+  control_toolbox::control_toolbox
+  ${control_msgs_TARGETS}
+  hardware_interface::hardware_interface
+  pluginlib::pluginlib
+  rclcpp::rclcpp
+  rclcpp_lifecycle::rclcpp_lifecycle
+  realtime_tools::realtime_tools)
+target_link_options(pr2_ros2_controllers PRIVATE -Wl,--no-undefined)
+pluginlib_export_plugin_description_file(controller_interface pr2_ros2_controllers_plugins.xml)
+
 # Realtime controller manager node. Needs a raw socket, mlockall and SCHED_FIFO: the launch file
 # starts it through pr2-rt (tools/), which grants those as ambient capabilities (decision D11).
 add_executable(pr2_control_node src/pr2_control_node.cpp)
@@ -65,7 +85,7 @@ target_link_libraries(pr2_control_node
   pr2_motor_release_gate
   rclcpp::rclcpp)
 
-install(TARGETS ${PROJECT_NAME} pr2_motor_release_gate EXPORT export_${PROJECT_NAME}
+install(TARGETS ${PROJECT_NAME} pr2_motor_release_gate pr2_ros2_controllers EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
 install(TARGETS pr2_control_node DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS tools/velocity_step_test.py tools/velocity_sine_analysis.py DESTINATION lib/${PROJECT_NAME})
@@ -90,8 +110,13 @@ if(BUILD_TESTING)
   target_link_libraries(test_motor_release_gate pr2_motor_release_gate)
   ament_add_gtest(test_velocity_window test/test_velocity_window.cpp)
   target_include_directories(test_velocity_window PRIVATE include)
+  ament_add_gtest(test_joint_velocity_controller test/test_joint_velocity_controller.cpp)
+  target_link_libraries(test_joint_velocity_controller pr2_ros2_controllers ${lifecycle_msgs_TARGETS})
+  target_compile_definitions(test_joint_velocity_controller PRIVATE
+    CONTROLLERS_YAML="${CMAKE_CURRENT_SOURCE_DIR}/config/controllers.yaml")
 endif()
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
-ament_export_dependencies(hardware_interface pluginlib rclcpp rclcpp_lifecycle std_msgs ethercat_hardware pr2_mechanism_model)
+ament_export_dependencies(hardware_interface pluginlib rclcpp rclcpp_lifecycle std_msgs ethercat_hardware pr2_mechanism_model
+  control_msgs control_toolbox controller_interface realtime_tools)
 ament_package()

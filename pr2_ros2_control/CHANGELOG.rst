@@ -4,6 +4,12 @@ Changelog for package pr2_ros2_control
 
 2.0.0 (unreleased)
 ------------------
+* New controller ``pr2_ros2_control/JointVelocityController`` (library ``pr2_ros2_controllers``)
+  in place of ``pid_controller`` for the arm, torso, head and wrist velocity controllers (D40):
+  ``pid_controller``'s parameters (``gains.<joint>`` through ``control_toolbox::PidROS``) and
+  topics (``~/reference``, ``~/controller_state``), but it starts at zero velocity with cleared
+  integrals (also at the restart before a motor release), returns to zero velocity after
+  ``command_timeout`` (0.2 s) without a reference, and sets the efforts to 0 when deactivated.
 * ``joint_state_broadcaster`` lists its 45 joints and position, velocity and effort explicitly:
   with empty lists it also claimed the state interfaces ``pid_controller`` exports when it was
   configured after them, and the controller manager then refused the restart before a motor

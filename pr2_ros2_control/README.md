@@ -57,12 +57,15 @@ ros2 launch pr2_ros2_control pr2_control.launch.py commanding_enabled:=true \
   feedforward (D30).
 - `config/controllers.yaml` defines `r_wrist_roll_effort_controller`
   (`effort_controllers/JointGroupEffortController`) and `r_wrist_velocity_controller`
-  (`pid_controller/PidController` on both wrist joints, provisional gains from D23), and
+  (both wrist joints, provisional gains from D23), and
   `r_arm_velocity_controller` and `l_arm_velocity_controller` (all seven joints of one arm, WG's
   arm trajectory gains in velocity form, clamps for `max_effort_fraction:=0.3`; D28, D29), and
   `torso_velocity_controller` and `head_velocity_controller` (WG's torso and head gains, clamps for
   `max_effort_fraction:=0.6`, each in a launch of its own; D31). None is started by the launch file;
-  the two arm controllers can run together.
+  the two arm controllers can run together. All velocity controllers are
+  `pr2_ros2_control/JointVelocityController` (D40): `pid_controller`'s parameters and topics, but
+  they start at zero velocity with cleared integrals and return to zero velocity after
+  `command_timeout` (0.2 s) without a reference.
 
 ## Running
 

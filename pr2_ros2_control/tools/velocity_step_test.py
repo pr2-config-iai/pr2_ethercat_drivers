@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Velocity steps on one joint of a pid_controller velocity controller, with a watchdog (D27).
+"""Velocity steps on one joint of a velocity controller (D27, D40), with a watchdog.
 
 Holds every joint of the controller at 0 rad/s and moves one of them: hold, +velocity, hold,
 -velocity, hold (so it ends near where it started), then halts the motors. Calls
